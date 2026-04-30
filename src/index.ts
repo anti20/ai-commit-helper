@@ -18,7 +18,10 @@ type AiProvider = "codex" | "openai";
 
 type CliOptions = {
   auto?: boolean;
+  pr?: boolean;
 };
+
+type OutputMode = "summary" | "pr";
 
 async function runGit(args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", args, {
@@ -82,7 +85,7 @@ async function askForUserGoal(): Promise<string | undefined> {
   return goal.length > 0 ? goal : undefined;
 }
 
-function buildGenerationPrompt(stagedDiff: string, userGoal?: string): string {
+function buildSummaryPrompt(stagedDiff: string, userGoal?: string): string {
   const goalSection = userGoal
     ? `User goal:\n${userGoal}\n\n`
     : "User goal:\nNot provided.\n\n";
@@ -114,6 +117,51 @@ ${stagedDiff}
 \`\`\``;
 }
 
+function buildPrPrompt(stagedDiff: string, userGoal?: string): string {
+  const goalSection = userGoal
+    ? `User goal:\n${userGoal}\n\n`
+    : "User goal:\nNot provided.\n\n";
+
+  return `You are generating a pull request description.
+
+Do not modify files.
+Do not run commands.
+Return markdown text only.
+Keep the output concise and easy to copy.
+
+Use the staged git diff and optional user goal below to generate exactly this markdown structure:
+
+## Summary
+<high level explanation>
+
+## Changes
+<bullet points of changes>
+
+## Why
+<reason for the changes>
+
+## Testing
+<how to test>
+
+## Risk
+<possible risks or side effects>
+
+${goalSection}Staged git diff:
+\`\`\`diff
+${stagedDiff}
+\`\`\``;
+}
+
+function buildGenerationPrompt(
+  mode: OutputMode,
+  stagedDiff: string,
+  userGoal?: string,
+): string {
+  return mode === "pr"
+    ? buildPrPrompt(stagedDiff, userGoal)
+    : buildSummaryPrompt(stagedDiff, userGoal);
+}
+
 function getErrorMessage(error: unknown): string {
   if (
     typeof error === "object" &&
@@ -133,10 +181,11 @@ function getErrorMessage(error: unknown): string {
 }
 
 async function generateWithCodex(
+  mode: OutputMode,
   stagedDiff: string,
   userGoal?: string,
 ): Promise<string> {
-  const prompt = buildGenerationPrompt(stagedDiff, userGoal);
+  const prompt = buildGenerationPrompt(mode, stagedDiff, userGoal);
   const outputPath = join(
     tmpdir(),
     `ai-commit-helper-codex-${randomUUID()}.txt`,
@@ -220,11 +269,12 @@ function runCodexExec(args: string[]): Promise<{ stdout: string; stderr: string 
 
 async function generateSummary(
   provider: AiProvider,
+  mode: OutputMode,
   stagedDiff: string,
   userGoal?: string,
 ): Promise<string> {
   if (provider === "codex") {
-    return generateWithCodex(stagedDiff, userGoal);
+    return generateWithCodex(mode, stagedDiff, userGoal);
   }
 
   throw new Error("OpenAI provider generation is not implemented yet.");
@@ -269,9 +319,11 @@ async function run(options: CliOptions): Promise<void> {
     console.log(previewDiff(stagedDiff));
 
     try {
+      const mode: OutputMode = options.pr ? "pr" : "summary";
       const userGoal = options.auto ? undefined : await askForUserGoal();
       const generatedSummary = await generateSummary(
         aiProvider,
+        mode,
         stagedDiff,
         userGoal,
       );
@@ -296,6 +348,7 @@ program
   .description("A CLI helper for creating commit messages.")
   .version("0.1.0")
   .option("--auto", "infer the goal from the staged diff without prompting")
+  .option("--pr", "generate a markdown pull request description")
   .action(async (options: CliOptions) => {
     await run(options);
   });

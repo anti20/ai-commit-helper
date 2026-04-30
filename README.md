@@ -10,7 +10,7 @@ Install dependencies with `npm install`.
 
 ## Usage
 
-Run `ai-commit-helper` after staging your changes.
+Run `ai-commit-helper` after staging your changes with Git.
 
 ## Development
 
