@@ -4,7 +4,7 @@ import chalk from "chalk";
 import { randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { constants } from "node:fs";
-import { access, readdir, readFile, unlink } from "node:fs/promises";
+import { access, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -44,6 +44,8 @@ type CliOptions = {
 };
 
 type OutputMode = "summary" | "pr";
+type PrAction = "copy" | "none";
+type SummaryAction = "commit" | "commit-push" | "copy" | "none";
 
 async function runGit(args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", args, {
@@ -613,6 +615,156 @@ function printGeneratedSummary(summary: string): void {
   console.log(summary.trim());
 }
 
+async function copyToClipboard(text: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn("pbcopy", {
+      stdio: ["pipe", "ignore", "pipe"],
+    });
+    const stderrChunks: Buffer[] = [];
+
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderrChunks.push(chunk);
+    });
+
+    child.on("error", reject);
+
+    child.on("close", (code) => {
+      if (code !== 0) {
+        const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
+        reject(new Error(stderr || `pbcopy exited with code ${code}.`));
+        return;
+      }
+
+      resolve();
+    });
+
+    child.stdin.end(text);
+  });
+}
+
+async function askForPrAction(): Promise<PrAction | null> {
+  const response = await prompts({
+    type: "select",
+    name: "action",
+    message: "What do you want to do?",
+    choices: [
+      {
+        title: "Copy PR description",
+        value: "copy",
+      },
+      {
+        title: "Do nothing",
+        value: "none",
+      },
+    ],
+  });
+
+  return (response.action as PrAction | undefined) ?? null;
+}
+
+async function handlePrActions(prDescription: string): Promise<void> {
+  const action = await askForPrAction();
+
+  if (action === "copy") {
+    await copyToClipboard(prDescription);
+    console.log(chalk.green("Copied PR description to clipboard."));
+  }
+}
+
+function extractCommitMessage(generatedOutput: string): string {
+  const commitHeader = "Commit message:";
+  const changelogHeader = "Changelog:";
+  const commitStart = generatedOutput.indexOf(commitHeader);
+
+  if (commitStart === -1) {
+    throw new Error("Generated output did not include a Commit message section.");
+  }
+
+  const messageStart = commitStart + commitHeader.length;
+  const changelogStart = generatedOutput.indexOf(changelogHeader, messageStart);
+  const commitMessage = generatedOutput
+    .slice(messageStart, changelogStart === -1 ? undefined : changelogStart)
+    .trim();
+
+  if (commitMessage.length === 0) {
+    throw new Error("Generated commit message was empty.");
+  }
+
+  return commitMessage;
+}
+
+async function askForSummaryAction(): Promise<SummaryAction | null> {
+  const response = await prompts({
+    type: "select",
+    name: "action",
+    message: "What do you want to do?",
+    choices: [
+      {
+        title: "Commit",
+        value: "commit",
+      },
+      {
+        title: "Commit and push",
+        value: "commit-push",
+      },
+      {
+        title: "Copy commit message",
+        value: "copy",
+      },
+      {
+        title: "Do nothing",
+        value: "none",
+      },
+    ],
+  });
+
+  return (response.action as SummaryAction | undefined) ?? null;
+}
+
+async function commitWithMessage(commitMessage: string): Promise<void> {
+  const stagedDiff = await readStagedDiff();
+
+  if (stagedDiff.trim().length === 0) {
+    throw new Error("No staged changes found. Run git add . first.");
+  }
+
+  const messagePath = join(
+    tmpdir(),
+    `ai-commit-helper-message-${randomUUID()}.txt`,
+  );
+
+  try {
+    await writeFile(messagePath, `${commitMessage.trim()}\n`, "utf8");
+    await runGit(["commit", "-F", messagePath]);
+  } finally {
+    await unlink(messagePath).catch(() => undefined);
+  }
+}
+
+async function handleSummaryActions(generatedOutput: string): Promise<void> {
+  const action = await askForSummaryAction();
+
+  if (!action || action === "none") {
+    return;
+  }
+
+  const commitMessage = extractCommitMessage(generatedOutput);
+
+  if (action === "copy") {
+    await copyToClipboard(commitMessage);
+    console.log(chalk.green("Copied commit message to clipboard."));
+    return;
+  }
+
+  await commitWithMessage(commitMessage);
+  console.log(chalk.green("Created commit."));
+
+  if (action === "commit-push") {
+    await runGit(["push"]);
+    console.log(chalk.green("Pushed commit."));
+  }
+}
+
 async function run(options: CliOptions): Promise<void> {
   if (!(await isInsideGitRepository())) {
     console.error(chalk.red("Error: current directory is not inside a Git repository."));
@@ -703,6 +855,17 @@ async function run(options: CliOptions): Promise<void> {
       }
 
       printGeneratedSummary(generatedSummary);
+
+      try {
+        if (mode === "pr") {
+          await handlePrActions(generatedSummary);
+        } else {
+          await handleSummaryActions(generatedSummary);
+        }
+      } catch (error) {
+        console.error(chalk.red(getErrorMessage(error)));
+        process.exitCode = 1;
+      }
     } catch (error) {
       console.error(
         chalk.red(
