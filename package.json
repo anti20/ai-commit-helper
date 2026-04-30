@@ -1,16 +1,35 @@
 {
   "name": "ai-commit-helper",
   "version": "0.1.0",
-  "description": "A CLI helper for creating commit messages.",
+  "description": "AI-powered CLI for generating commit messages, changelogs, and PR descriptions from Git changes",
   "type": "module",
   "bin": {
     "ai-commit-helper": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "package.json"
+  ],
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anti20/ai-commit-helper.git"
+  },
+  "keywords": [
+    "ai",
+    "git",
+    "commit",
+    "cli",
+    "changelog",
+    "pull-request"
+  ],
+  "author": "Antal Gati",
   "dependencies": {
     "chalk": "^5.3.0",
     "commander": "^12.1.0",

@@ -52,13 +52,13 @@ After generation, the CLI can help with common next steps such as copying the co
 
 ## Installation
 
-Install globally from GitHub over HTTPS:
+Install with the smart installer:
 
 ```bash
-npm install -g git+https://github.com/anti20/ai-commit-helper.git
+curl -fsSL https://raw.githubusercontent.com/anti20/ai-commit-helper/main/install.sh | bash
 ```
 
-The repository includes the built CLI output in `dist/`, so GitHub installs do not build the TypeScript project during installation.
+The installer clones the repository into `~/.ai-commit-helper`, builds the CLI, and links `~/.local/bin/ai-commit-helper` to the built command. It can also help add `~/.local/bin` to your PATH.
 
 Verify the command is available:
 
@@ -73,10 +73,18 @@ ai-commit-helper --auto
 ai-commit-helper --pr --auto
 ```
 
+Run inside any Git repository after staging changes:
+
+```bash
+git add .
+ai-commit-helper --auto
+```
+
 Requirements:
 
-- Node.js 20 or newer
 - Git
+- Node.js 20 or newer
+- npm
 - Codex CLI or `OPENAI_API_KEY`
 
 For local development, clone the repository:
