@@ -2,7 +2,7 @@
 
 ## What it does
 
-TODO
+Summarizes staged Git changes for commit and PR workflows.
 
 ## Install
 
