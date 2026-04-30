@@ -4,12 +4,13 @@
   "description": "A CLI helper for creating commit messages.",
   "type": "module",
   "bin": {
-    "ai-commit-helper": "./dist/index.js"
+    "ai-commit-helper": "dist/index.js"
   },
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "prepare": "npm run build"
   },
   "dependencies": {
     "chalk": "^5.3.0",

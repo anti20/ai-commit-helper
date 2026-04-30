@@ -52,7 +52,32 @@ After generation, the CLI can help with common next steps such as copying the co
 
 ## Installation
 
-Clone the repository:
+Install globally from GitHub over HTTPS:
+
+```bash
+npm install -g git+https://github.com/anti20/ai-commit-helper.git
+```
+
+Verify the command is available:
+
+```bash
+ai-commit-helper --help
+```
+
+Basic usage:
+
+```bash
+ai-commit-helper --auto
+ai-commit-helper --pr --auto
+```
+
+Requirements:
+
+- Node.js 20 or newer
+- Git
+- Codex CLI or `OPENAI_API_KEY`
+
+For local development, clone the repository:
 
 ```bash
 git clone <repo-url>
@@ -75,12 +100,6 @@ Link the CLI locally:
 
 ```bash
 npm link
-```
-
-Verify the command is available:
-
-```bash
-ai-commit-helper --help
 ```
 
 ## Provider Setup
