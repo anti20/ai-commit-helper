@@ -14,4 +14,4 @@ TODO
 
 ## Development
 
-TODO
+Run the CLI locally with `npm run dev`.
