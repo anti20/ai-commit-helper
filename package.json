@@ -10,7 +10,7 @@
     "dev": "tsx src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "prepare": "npm run build"
+    "prepare": "node scripts/prepare-build.mjs"
   },
   "dependencies": {
     "chalk": "^5.3.0",
