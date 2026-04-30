@@ -116,29 +116,16 @@ async function findCodexCli() {
 async function detectAvailableProviders() {
     const providers = [];
     const codexPath = await findCodexCli();
-    const claudePath = await findCommandInPath("claude");
     if (codexPath) {
         providers.push({
             name: "codex",
             codexPath,
         });
     }
-    if (claudePath) {
-        providers.push({
-            name: "claude",
-            claudePath,
-        });
-    }
     if (process.env.OPENAI_API_KEY) {
         providers.push({
             name: "openai",
             apiKey: process.env.OPENAI_API_KEY,
-        });
-    }
-    if (process.env.ANTHROPIC_API_KEY) {
-        providers.push({
-            name: "anthropic",
-            apiKey: process.env.ANTHROPIC_API_KEY,
         });
     }
     return providers;
@@ -150,12 +137,8 @@ function missingProviderMessage(provider) {
     switch (provider) {
         case "codex":
             return "Provider 'codex' was requested but Codex CLI was not found.";
-        case "claude":
-            return "Provider 'claude' was requested but Claude CLI was not found.";
         case "openai":
             return "Provider 'openai' was requested but OPENAI_API_KEY is not set.";
-        case "anthropic":
-            return "Provider 'anthropic' was requested but ANTHROPIC_API_KEY is not set.";
     }
 }
 async function askForProvider(providers) {
@@ -460,10 +443,7 @@ async function generateSummary(provider, mode, stagedDiff, userGoal) {
     if (provider.name === "openai") {
         return generateWithOpenAi(provider.apiKey, mode, stagedDiff, userGoal);
     }
-    if (provider.name === "claude") {
-        throw new Error("Claude CLI generation is not implemented yet. Detection is available, but non-interactive CLI flags still need to be wired.");
-    }
-    throw new Error("Anthropic API generation is not implemented yet. Detection is available via ANTHROPIC_API_KEY.");
+    throw new Error(`Unsupported AI provider: ${provider}.`);
 }
 function printGeneratedSummary(summary) {
     console.log();
@@ -727,8 +707,8 @@ async function run(options) {
         }
         const availableProviders = await detectAvailableProviders();
         const requestedProvider = options.provider ?? "auto";
-        if (!["auto", "codex", "claude", "openai", "anthropic"].includes(requestedProvider)) {
-            console.error(chalk.red(`Unsupported provider '${requestedProvider}'. Supported values: auto, codex, claude, openai, anthropic.`));
+        if (!["auto", "codex", "openai"].includes(requestedProvider)) {
+            console.error(chalk.red(`Unsupported provider '${requestedProvider}'. Supported values: codex or openai.`));
             process.exitCode = 1;
             return;
         }
@@ -808,7 +788,7 @@ program
     .option("--auto", "infer the goal from the staged diff without prompting")
     .option("--pr", "generate a markdown pull request description")
     .option("--show-diff", "print a preview of the staged diff")
-    .option("--provider <provider>", "AI provider to use: auto, codex, claude, openai, or anthropic", "auto")
+    .option("--provider <provider>", "AI provider to use: codex or openai. Defaults to automatic detection.", "auto")
     .action(async (options) => {
     await run(options);
 });
