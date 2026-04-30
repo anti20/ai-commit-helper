@@ -3,8 +3,9 @@
 import chalk from "chalk";
 import { randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
-import { readFile, unlink } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { constants } from "node:fs";
+import { access, readdir, readFile, unlink } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { Command } from "commander";
@@ -16,9 +17,19 @@ const codexTimeoutMs = 120_000;
 
 type AiProvider = "codex" | "openai";
 
+type ProviderSelection =
+  | {
+      name: "codex";
+      codexPath: string;
+    }
+  | {
+      name: "openai";
+    };
+
 type CliOptions = {
   auto?: boolean;
   pr?: boolean;
+  showDiff?: boolean;
 };
 
 type OutputMode = "summary" | "pr";
@@ -45,24 +56,99 @@ async function readStagedDiff(): Promise<string> {
   return runGit(["diff", "--staged"]);
 }
 
-async function isCodexCliAvailable(): Promise<boolean> {
+async function findCodexInPath(): Promise<string | null> {
   try {
-    await execFileAsync("sh", ["-c", "command -v codex"], {
+    const { stdout } = await execFileAsync("sh", ["-c", "command -v codex"], {
       cwd: process.cwd(),
     });
+    const codexPath = stdout.trim().split("\n")[0];
+    return codexPath.length > 0 ? codexPath : null;
+  } catch {
+    return null;
+  }
+}
+
+async function isExecutable(path: string): Promise<boolean> {
+  try {
+    await access(path, constants.X_OK);
     return true;
   } catch {
     return false;
   }
 }
 
-async function detectAiProvider(): Promise<AiProvider | null> {
-  if (await isCodexCliAvailable()) {
-    return "codex";
+async function findCodexInVersionDirs(baseDir: string): Promise<string | null> {
+  let entries: string[];
+
+  try {
+    entries = await readdir(baseDir);
+  } catch {
+    return null;
+  }
+
+  for (const entry of entries) {
+    const candidate = join(baseDir, entry, "bin", "codex");
+
+    if (await isExecutable(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+async function findCodexCli(): Promise<string | null> {
+  const pathCodex = await findCodexInPath();
+
+  if (pathCodex) {
+    return pathCodex;
+  }
+
+  const home = homedir();
+  const exactCandidates = [
+    join(home, ".local", "bin", "codex"),
+    join(home, ".npm-global", "bin", "codex"),
+    "/opt/homebrew/bin/codex",
+    "/usr/local/bin/codex",
+  ];
+
+  for (const candidate of exactCandidates) {
+    if (await isExecutable(candidate)) {
+      return candidate;
+    }
+  }
+
+  const versionDirCandidates = [
+    join(home, ".nvm"),
+    join(home, ".fnm"),
+    join(home, ".local", "state", "fnm_multishells"),
+  ];
+
+  for (const baseDir of versionDirCandidates) {
+    const codexPath = await findCodexInVersionDirs(baseDir);
+
+    if (codexPath) {
+      return codexPath;
+    }
+  }
+
+  return null;
+}
+
+async function detectAiProvider(): Promise<ProviderSelection | null> {
+  const codexPath = await findCodexCli();
+
+  if (codexPath) {
+    return {
+      name: "codex",
+      codexPath,
+    };
   }
 
   if (process.env.OPENAI_API_KEY) {
-    return "openai";
+    return {
+      name: "openai",
+    };
   }
 
   return null;
@@ -87,7 +173,12 @@ async function askForUserGoal(): Promise<string | undefined> {
 
 function buildSummaryPrompt(stagedDiff: string, userGoal?: string): string {
   const goalSection = userGoal
-    ? `User goal:\n${userGoal}\n\n`
+    ? `User goal:
+${userGoal}
+
+Use the user goal as important context. If the staged diff appears to contradict the user goal, mention that mismatch in the generated output.
+
+`
     : "User goal:\nNot provided.\n\n";
 
   return `You are generating human-readable Git change summaries.
@@ -119,7 +210,12 @@ ${stagedDiff}
 
 function buildPrPrompt(stagedDiff: string, userGoal?: string): string {
   const goalSection = userGoal
-    ? `User goal:\n${userGoal}\n\n`
+    ? `User goal:
+${userGoal}
+
+Use the user goal as important context. If the staged diff appears to contradict the user goal, mention that mismatch in the generated output.
+
+`
     : "User goal:\nNot provided.\n\n";
 
   return `You are generating a pull request description.
@@ -181,6 +277,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 async function generateWithCodex(
+  codexPath: string,
   mode: OutputMode,
   stagedDiff: string,
   userGoal?: string,
@@ -192,7 +289,7 @@ async function generateWithCodex(
   );
 
   try {
-    const { stdout, stderr } = await runCodexExec([
+    const { stdout, stderr } = await runCodexExec(codexPath, [
       "exec",
       "--sandbox",
       "read-only",
@@ -218,9 +315,12 @@ async function generateWithCodex(
   }
 }
 
-function runCodexExec(args: string[]): Promise<{ stdout: string; stderr: string }> {
+function runCodexExec(
+  codexPath: string,
+  args: string[],
+): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn("codex", args, {
+    const child = spawn(codexPath, args, {
       cwd: process.cwd(),
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -268,13 +368,13 @@ function runCodexExec(args: string[]): Promise<{ stdout: string; stderr: string 
 }
 
 async function generateSummary(
-  provider: AiProvider,
+  provider: ProviderSelection,
   mode: OutputMode,
   stagedDiff: string,
   userGoal?: string,
 ): Promise<string> {
-  if (provider === "codex") {
-    return generateWithCodex(mode, stagedDiff, userGoal);
+  if (provider.name === "codex") {
+    return generateWithCodex(provider.codexPath, mode, stagedDiff, userGoal);
   }
 
   throw new Error("OpenAI provider generation is not implemented yet.");
@@ -315,8 +415,15 @@ async function run(options: CliOptions): Promise<void> {
     }
 
     console.log(chalk.green("Staged changes detected"));
-    console.log(chalk.cyan(`Using AI provider: ${aiProvider}`));
-    console.log(previewDiff(stagedDiff));
+    console.log(chalk.cyan(`Using AI provider: ${aiProvider.name}`));
+
+    if (aiProvider.name === "codex") {
+      console.log(chalk.cyan(`Using Codex CLI: ${aiProvider.codexPath}`));
+    }
+
+    if (options.showDiff) {
+      console.log(previewDiff(stagedDiff));
+    }
 
     try {
       const mode: OutputMode = options.pr ? "pr" : "summary";
@@ -330,7 +437,9 @@ async function run(options: CliOptions): Promise<void> {
       printGeneratedSummary(generatedSummary);
     } catch (error) {
       console.error(
-        chalk.red(`Error generating summary with ${aiProvider}: ${getErrorMessage(error)}`),
+        chalk.red(
+          `Error generating summary with ${aiProvider.name}: ${getErrorMessage(error)}`,
+        ),
       );
       process.exitCode = 1;
     }
@@ -349,6 +458,7 @@ program
   .version("0.1.0")
   .option("--auto", "infer the goal from the staged diff without prompting")
   .option("--pr", "generate a markdown pull request description")
+  .option("--show-diff", "print a preview of the staged diff")
   .action(async (options: CliOptions) => {
     await run(options);
   });
