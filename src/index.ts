@@ -13,9 +13,9 @@ import prompts from "prompts";
 
 const execFileAsync = promisify(execFile);
 const diffPreviewLength = 1500;
-const codexTimeoutMs = 120_000;
+const generationTimeoutMs = 120_000;
 
-type AiProvider = "codex" | "openai";
+type ProviderName = "auto" | "codex" | "claude" | "openai" | "anthropic";
 
 type ProviderSelection =
   | {
@@ -23,13 +23,23 @@ type ProviderSelection =
       codexPath: string;
     }
   | {
+      name: "claude";
+      claudePath: string;
+    }
+  | {
       name: "openai";
+      apiKey: string;
+    }
+  | {
+      name: "anthropic";
+      apiKey: string;
     };
 
 type CliOptions = {
   auto?: boolean;
   pr?: boolean;
   showDiff?: boolean;
+  provider?: ProviderName;
 };
 
 type OutputMode = "summary" | "pr";
@@ -56,16 +66,20 @@ async function readStagedDiff(): Promise<string> {
   return runGit(["diff", "--staged"]);
 }
 
-async function findCodexInPath(): Promise<string | null> {
+async function findCommandInPath(command: string): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync("sh", ["-c", "command -v codex"], {
+    const { stdout } = await execFileAsync("sh", ["-c", `command -v ${command}`], {
       cwd: process.cwd(),
     });
-    const codexPath = stdout.trim().split("\n")[0];
-    return codexPath.length > 0 ? codexPath : null;
+    const commandPath = stdout.trim().split("\n")[0];
+    return commandPath.length > 0 ? commandPath : null;
   } catch {
     return null;
   }
+}
+
+async function findCodexInPath(): Promise<string | null> {
+  return findCommandInPath("codex");
 }
 
 async function isExecutable(path: string): Promise<boolean> {
@@ -135,23 +149,121 @@ async function findCodexCli(): Promise<string | null> {
   return null;
 }
 
-async function detectAiProvider(): Promise<ProviderSelection | null> {
+async function detectAvailableProviders(): Promise<ProviderSelection[]> {
+  const providers: ProviderSelection[] = [];
   const codexPath = await findCodexCli();
+  const claudePath = await findCommandInPath("claude");
 
   if (codexPath) {
-    return {
+    providers.push({
       name: "codex",
       codexPath,
-    };
+    });
+  }
+
+  if (claudePath) {
+    providers.push({
+      name: "claude",
+      claudePath,
+    });
   }
 
   if (process.env.OPENAI_API_KEY) {
-    return {
+    providers.push({
       name: "openai",
-    };
+      apiKey: process.env.OPENAI_API_KEY,
+    });
   }
 
-  return null;
+  if (process.env.ANTHROPIC_API_KEY) {
+    providers.push({
+      name: "anthropic",
+      apiKey: process.env.ANTHROPIC_API_KEY,
+    });
+  }
+
+  return providers;
+}
+
+function providerNames(providers: ProviderSelection[]): string {
+  return providers.map((provider) => provider.name).join(", ");
+}
+
+function missingProviderMessage(provider: Exclude<ProviderName, "auto">): string {
+  switch (provider) {
+    case "codex":
+      return "Provider 'codex' was requested but Codex CLI was not found.";
+    case "claude":
+      return "Provider 'claude' was requested but Claude CLI was not found.";
+    case "openai":
+      return "Provider 'openai' was requested but OPENAI_API_KEY is not set.";
+    case "anthropic":
+      return "Provider 'anthropic' was requested but ANTHROPIC_API_KEY is not set.";
+  }
+}
+
+function selectByPriority(providers: ProviderSelection[]): ProviderSelection {
+  const priority: Exclude<ProviderName, "auto">[] = [
+    "codex",
+    "claude",
+    "openai",
+    "anthropic",
+  ];
+
+  for (const providerName of priority) {
+    const provider = providers.find((available) => available.name === providerName);
+
+    if (provider) {
+      return provider;
+    }
+  }
+
+  return providers[0];
+}
+
+async function askForProvider(
+  providers: ProviderSelection[],
+): Promise<ProviderSelection | null> {
+  const response = await prompts({
+    type: "select",
+    name: "provider",
+    message: "Which AI provider do you want to use?",
+    choices: providers.map((provider) => ({
+      title: provider.name,
+      value: provider.name,
+    })),
+  });
+
+  const selectedName = response.provider as ProviderSelection["name"] | undefined;
+  return providers.find((provider) => provider.name === selectedName) ?? null;
+}
+
+async function selectAiProvider(
+  requestedProvider: ProviderName,
+  providers: ProviderSelection[],
+  autoMode: boolean,
+): Promise<ProviderSelection | null> {
+  if (requestedProvider !== "auto") {
+    const provider = providers.find(
+      (availableProvider) => availableProvider.name === requestedProvider,
+    );
+
+    if (!provider) {
+      throw new Error(missingProviderMessage(requestedProvider));
+    }
+
+    return provider;
+  }
+
+  if (providers.length === 0) {
+    return null;
+  }
+
+  if (providers.length === 1 || autoMode) {
+    return selectByPriority(providers);
+  }
+
+  return askForProvider(providers);
 }
 
 function previewDiff(diff: string): string {
@@ -315,6 +427,105 @@ async function generateWithCodex(
   }
 }
 
+function extractOpenAiText(response: unknown): string {
+  if (
+    typeof response === "object" &&
+    response !== null &&
+    "output_text" in response &&
+    typeof response.output_text === "string"
+  ) {
+    return response.output_text.trim();
+  }
+
+  if (
+    typeof response === "object" &&
+    response !== null &&
+    "output" in response &&
+    Array.isArray(response.output)
+  ) {
+    const textParts: string[] = [];
+
+    for (const item of response.output) {
+      if (
+        typeof item === "object" &&
+        item !== null &&
+        "content" in item &&
+        Array.isArray(item.content)
+      ) {
+        for (const content of item.content) {
+          if (
+            typeof content === "object" &&
+            content !== null &&
+            "text" in content &&
+            typeof content.text === "string"
+          ) {
+            textParts.push(content.text);
+          }
+        }
+      }
+    }
+
+    return textParts.join("\n").trim();
+  }
+
+  return "";
+}
+
+async function generateWithOpenAi(
+  apiKey: string,
+  mode: OutputMode,
+  stagedDiff: string,
+  userGoal?: string,
+): Promise<string> {
+  const prompt = buildGenerationPrompt(mode, stagedDiff, userGoal);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, generationTimeoutMs);
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
+        input: prompt,
+      }),
+      signal: controller.signal,
+    });
+
+    const responseBody = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      const message =
+        typeof responseBody === "object" &&
+        responseBody !== null &&
+        "error" in responseBody &&
+        typeof responseBody.error === "object" &&
+        responseBody.error !== null &&
+        "message" in responseBody.error &&
+        typeof responseBody.error.message === "string"
+          ? responseBody.error.message
+          : response.statusText;
+
+      throw new Error(`OpenAI API request failed: ${message}`);
+    }
+
+    const output = extractOpenAiText(responseBody);
+
+    if (output.length === 0) {
+      throw new Error("OpenAI returned empty output.");
+    }
+
+    return output;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function runCodexExec(
   codexPath: string,
   args: string[],
@@ -331,7 +542,7 @@ function runCodexExec(
     const timeout = setTimeout(() => {
       timedOut = true;
       child.kill("SIGTERM");
-    }, codexTimeoutMs);
+    }, generationTimeoutMs);
 
     child.stdout.on("data", (chunk: Buffer) => {
       stdoutChunks.push(chunk);
@@ -353,7 +564,7 @@ function runCodexExec(
       const stderr = Buffer.concat(stderrChunks).toString("utf8");
 
       if (timedOut) {
-        reject(new Error(`Codex timed out after ${codexTimeoutMs / 1000} seconds.`));
+        reject(new Error(`Codex timed out after ${generationTimeoutMs / 1000} seconds.`));
         return;
       }
 
@@ -377,7 +588,19 @@ async function generateSummary(
     return generateWithCodex(provider.codexPath, mode, stagedDiff, userGoal);
   }
 
-  throw new Error("OpenAI provider generation is not implemented yet.");
+  if (provider.name === "openai") {
+    return generateWithOpenAi(provider.apiKey, mode, stagedDiff, userGoal);
+  }
+
+  if (provider.name === "claude") {
+    throw new Error(
+      "Claude CLI generation is not implemented yet. Detection is available, but non-interactive CLI flags still need to be wired.",
+    );
+  }
+
+  throw new Error(
+    "Anthropic API generation is not implemented yet. Detection is available via ANTHROPIC_API_KEY.",
+  );
 }
 
 function printGeneratedSummary(summary: string): void {
@@ -402,7 +625,40 @@ async function run(options: CliOptions): Promise<void> {
       return;
     }
 
-    const aiProvider = await detectAiProvider();
+    const availableProviders = await detectAvailableProviders();
+    const requestedProvider = options.provider ?? "auto";
+
+    if (!["auto", "codex", "claude", "openai", "anthropic"].includes(requestedProvider)) {
+      console.error(
+        chalk.red(
+          `Unsupported provider '${requestedProvider}'. Supported values: auto, codex, claude, openai, anthropic.`,
+        ),
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    console.log(
+      chalk.cyan(
+        `Available AI providers: ${
+          availableProviders.length > 0 ? providerNames(availableProviders) : "none"
+        }`,
+      ),
+    );
+
+    let aiProvider: ProviderSelection | null;
+
+    try {
+      aiProvider = await selectAiProvider(
+        requestedProvider,
+        availableProviders,
+        Boolean(options.auto),
+      );
+    } catch (error) {
+      console.error(chalk.red(getErrorMessage(error)));
+      process.exitCode = 1;
+      return;
+    }
 
     if (!aiProvider) {
       console.error(
@@ -459,6 +715,11 @@ program
   .option("--auto", "infer the goal from the staged diff without prompting")
   .option("--pr", "generate a markdown pull request description")
   .option("--show-diff", "print a preview of the staged diff")
+  .option(
+    "--provider <provider>",
+    "AI provider to use: auto, codex, claude, openai, or anthropic",
+    "auto",
+  )
   .action(async (options: CliOptions) => {
     await run(options);
   });
