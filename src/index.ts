@@ -9,6 +9,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { Command } from "commander";
+import ora from "ora";
 import prompts from "prompts";
 
 const execFileAsync = promisify(execFile);
@@ -202,25 +203,6 @@ function missingProviderMessage(provider: Exclude<ProviderName, "auto">): string
   }
 }
 
-function selectByPriority(providers: ProviderSelection[]): ProviderSelection {
-  const priority: Exclude<ProviderName, "auto">[] = [
-    "codex",
-    "claude",
-    "openai",
-    "anthropic",
-  ];
-
-  for (const providerName of priority) {
-    const provider = providers.find((available) => available.name === providerName);
-
-    if (provider) {
-      return provider;
-    }
-  }
-
-  return providers[0];
-}
-
 async function askForProvider(
   providers: ProviderSelection[],
 ): Promise<ProviderSelection | null> {
@@ -241,7 +223,6 @@ async function askForProvider(
 async function selectAiProvider(
   requestedProvider: ProviderName,
   providers: ProviderSelection[],
-  autoMode: boolean,
 ): Promise<ProviderSelection | null> {
   if (requestedProvider !== "auto") {
     const provider = providers.find(
@@ -259,8 +240,8 @@ async function selectAiProvider(
     return null;
   }
 
-  if (providers.length === 1 || autoMode) {
-    return selectByPriority(providers);
+  if (providers.length === 1) {
+    return providers[0];
   }
 
   return askForProvider(providers);
@@ -298,21 +279,18 @@ Use the user goal as important context. If the staged diff appears to contradict
 Do not modify files.
 Do not run commands.
 Return text only.
-Keep the output concise and easy to copy.
+Keep the output short and easy to copy.
 
 Use the staged git diff and optional user goal below to generate exactly this structured output:
 
 Commit message:
 <one conventional commit message>
 
-PR description:
-<markdown PR description>
-
 Changelog:
 <one customer-safe changelog line>
 
-Testing notes:
-<short testing notes>
+Do not include a PR description.
+Do not include testing notes.
 
 ${goalSection}Staged git diff:
 \`\`\`diff
@@ -336,6 +314,7 @@ Do not modify files.
 Do not run commands.
 Return markdown text only.
 Keep the output concise and easy to copy.
+Do not include separate Commit message or Changelog sections.
 
 Use the staged git diff and optional user goal below to generate exactly this markdown structure:
 
@@ -349,10 +328,16 @@ Use the staged git diff and optional user goal below to generate exactly this ma
 <reason for the changes>
 
 ## Testing
-<how to test>
+<suggested or known verification steps based on the diff>
 
 ## Risk
 <possible risks or side effects>
+
+For Testing:
+- Suggest relevant verification commands only when package scripts or project files make them visible or strongly implied.
+- Do not claim any tests or commands were run.
+- Do not write only "Not run; no commands executed."
+- If no automated tests are evident from the diff, provide useful manual verification suggestions.
 
 ${goalSection}Staged git diff:
 \`\`\`diff
@@ -652,7 +637,6 @@ async function run(options: CliOptions): Promise<void> {
       aiProvider = await selectAiProvider(
         requestedProvider,
         availableProviders,
-        Boolean(options.auto),
       );
     } catch (error) {
       console.error(chalk.red(getErrorMessage(error)));
@@ -684,12 +668,22 @@ async function run(options: CliOptions): Promise<void> {
     try {
       const mode: OutputMode = options.pr ? "pr" : "summary";
       const userGoal = options.auto ? undefined : await askForUserGoal();
-      const generatedSummary = await generateSummary(
-        aiProvider,
-        mode,
-        stagedDiff,
-        userGoal,
-      );
+      const spinner = ora(`Generating output with ${aiProvider.name}...`).start();
+      let generatedSummary: string;
+
+      try {
+        generatedSummary = await generateSummary(
+          aiProvider,
+          mode,
+          stagedDiff,
+          userGoal,
+        );
+        spinner.stop();
+      } catch (error) {
+        spinner.stop();
+        throw error;
+      }
+
       printGeneratedSummary(generatedSummary);
     } catch (error) {
       console.error(
