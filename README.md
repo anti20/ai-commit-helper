@@ -10,7 +10,7 @@ TODO
 
 ## Usage
 
-TODO
+Run `ai-commit-helper` after staging your changes.
 
 ## Development
 

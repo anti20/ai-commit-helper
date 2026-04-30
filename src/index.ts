@@ -11,6 +11,8 @@ void prompts;
 const execFileAsync = promisify(execFile);
 const diffPreviewLength = 1500;
 
+type AiProvider = "codex" | "openai";
+
 async function runGit(args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", args, {
     cwd: process.cwd(),
@@ -31,6 +33,29 @@ async function isInsideGitRepository(): Promise<boolean> {
 
 async function readStagedDiff(): Promise<string> {
   return runGit(["diff", "--staged"]);
+}
+
+async function isCodexCliAvailable(): Promise<boolean> {
+  try {
+    await execFileAsync("sh", ["-c", "command -v codex"], {
+      cwd: process.cwd(),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function detectAiProvider(): Promise<AiProvider | null> {
+  if (await isCodexCliAvailable()) {
+    return "codex";
+  }
+
+  if (process.env.OPENAI_API_KEY) {
+    return "openai";
+  }
+
+  return null;
 }
 
 function previewDiff(diff: string): string {
@@ -54,7 +79,20 @@ async function run(): Promise<void> {
       return;
     }
 
+    const aiProvider = await detectAiProvider();
+
+    if (!aiProvider) {
+      console.error(
+        chalk.red(
+          "No AI provider found. Install/login to Codex CLI or set OPENAI_API_KEY.",
+        ),
+      );
+      process.exitCode = 1;
+      return;
+    }
+
     console.log(chalk.green("Staged changes detected"));
+    console.log(chalk.cyan(`Using AI provider: ${aiProvider}`));
     console.log(previewDiff(stagedDiff));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
