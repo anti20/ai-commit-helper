@@ -112,6 +112,28 @@ Link the CLI locally:
 npm link
 ```
 
+## Uninstall
+
+Remove ai-commit-helper from this machine:
+
+```bash
+ai-commit-helper uninstall
+```
+
+The uninstall command asks for confirmation, then removes only known install locations:
+
+- `~/.local/bin/ai-commit-helper`
+- `~/.ai-commit-helper`
+- the global npm package, if installed
+
+It also checks `~/.zshrc` and `~/.bashrc` for the exact PATH line added by the installer:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+If that exact line is found, the command removes only that line. It does not remove `~/.local/bin` or any unrelated shell configuration.
+
 ## Provider Setup
 
 AI Commit Helper detects available AI providers locally.
