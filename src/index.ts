@@ -10,13 +10,15 @@ import { promisify } from "node:util";
 import { Command } from "commander";
 import prompts from "prompts";
 
-void prompts;
-
 const execFileAsync = promisify(execFile);
 const diffPreviewLength = 1500;
 const codexTimeoutMs = 120_000;
 
 type AiProvider = "codex" | "openai";
+
+type CliOptions = {
+  auto?: boolean;
+};
 
 async function runGit(args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", args, {
@@ -69,6 +71,17 @@ function previewDiff(diff: string): string {
     : diff;
 }
 
+async function askForUserGoal(): Promise<string | undefined> {
+  const response = await prompts({
+    type: "text",
+    name: "goal",
+    message: "What is the main goal of these changes?",
+  });
+
+  const goal = typeof response.goal === "string" ? response.goal.trim() : "";
+  return goal.length > 0 ? goal : undefined;
+}
+
 function buildGenerationPrompt(stagedDiff: string, userGoal?: string): string {
   const goalSection = userGoal
     ? `User goal:\n${userGoal}\n\n`
@@ -79,6 +92,7 @@ function buildGenerationPrompt(stagedDiff: string, userGoal?: string): string {
 Do not modify files.
 Do not run commands.
 Return text only.
+Keep the output concise and easy to copy.
 
 Use the staged git diff and optional user goal below to generate exactly this structured output:
 
@@ -118,8 +132,11 @@ function getErrorMessage(error: unknown): string {
   return String(error);
 }
 
-async function generateWithCodex(stagedDiff: string): Promise<string> {
-  const prompt = buildGenerationPrompt(stagedDiff);
+async function generateWithCodex(
+  stagedDiff: string,
+  userGoal?: string,
+): Promise<string> {
+  const prompt = buildGenerationPrompt(stagedDiff, userGoal);
   const outputPath = join(
     tmpdir(),
     `ai-commit-helper-codex-${randomUUID()}.txt`,
@@ -204,15 +221,23 @@ function runCodexExec(args: string[]): Promise<{ stdout: string; stderr: string 
 async function generateSummary(
   provider: AiProvider,
   stagedDiff: string,
+  userGoal?: string,
 ): Promise<string> {
   if (provider === "codex") {
-    return generateWithCodex(stagedDiff);
+    return generateWithCodex(stagedDiff, userGoal);
   }
 
   throw new Error("OpenAI provider generation is not implemented yet.");
 }
 
-async function run(): Promise<void> {
+function printGeneratedSummary(summary: string): void {
+  console.log();
+  console.log(chalk.bold("Generated output"));
+  console.log("=".repeat("Generated output".length));
+  console.log(summary.trim());
+}
+
+async function run(options: CliOptions): Promise<void> {
   if (!(await isInsideGitRepository())) {
     console.error(chalk.red("Error: current directory is not inside a Git repository."));
     process.exitCode = 1;
@@ -244,9 +269,13 @@ async function run(): Promise<void> {
     console.log(previewDiff(stagedDiff));
 
     try {
-      const generatedSummary = await generateSummary(aiProvider, stagedDiff);
-      console.log();
-      console.log(generatedSummary);
+      const userGoal = options.auto ? undefined : await askForUserGoal();
+      const generatedSummary = await generateSummary(
+        aiProvider,
+        stagedDiff,
+        userGoal,
+      );
+      printGeneratedSummary(generatedSummary);
     } catch (error) {
       console.error(
         chalk.red(`Error generating summary with ${aiProvider}: ${getErrorMessage(error)}`),
@@ -266,8 +295,9 @@ program
   .name("ai-commit-helper")
   .description("A CLI helper for creating commit messages.")
   .version("0.1.0")
-  .action(async () => {
-    await run();
+  .option("--auto", "infer the goal from the staged diff without prompting")
+  .action(async (options: CliOptions) => {
+    await run(options);
   });
 
 program.parse();

@@ -6,7 +6,7 @@ Summarizes staged Git changes for commit and PR workflows.
 
 ## Install
 
-TODO
+Install dependencies with `npm install`.
 
 ## Usage
 
