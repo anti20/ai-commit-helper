@@ -58,6 +58,8 @@ Install globally from GitHub over HTTPS:
 npm install -g git+https://github.com/anti20/ai-commit-helper.git
 ```
 
+The repository includes the built CLI output in `dist/`, so GitHub installs do not build the TypeScript project during installation.
+
 Verify the command is available:
 
 ```bash
