@@ -284,10 +284,28 @@ Keep the output short and easy to copy.
 Use the staged git diff and optional user goal below to generate exactly this structured output:
 
 Commit message:
-<one conventional commit message>
+<type>(<scope>): <summary>
+
+<optional bullet body when there are multiple meaningful changes>
 
 Changelog:
-<one customer-safe changelog line>
+<user-facing changelog bullets>
+
+Commit message rules:
+- Use conventional commit format.
+- The first line must be a short title in this exact shape: <type>(<scope>): <summary>.
+- Summarize the overall change, not just the first or most obvious change.
+- If multiple major changes exist, use a broader title such as "feat(cli): improve generated output quality".
+- A multi-line commit message is allowed.
+- Add a commit body only when there are multiple meaningful changes.
+- When adding a body, use bullets and include only the top 3-4 most important changes.
+- Do not include every tiny change in the commit body.
+
+Changelog rules:
+- Include all meaningful user-facing changes.
+- The changelog can include more than 3-4 items when the diff warrants it.
+- Do not include purely internal refactors unless they affect user behavior.
+- Use clear user-facing wording.
 
 Do not include a PR description.
 Do not include testing notes.
