@@ -405,18 +405,25 @@ async function generateWithCodex(
   );
 
   try {
-    const { stdout, stderr } = await runCodexExec(codexPath, [
-      "exec",
-      "--sandbox",
-      "read-only",
-      "--ephemeral",
-      "--color",
-      "never",
-      "--output-last-message",
-      outputPath,
-      prompt,
-    ]);
+    const args = buildCodexExecArgs(prompt, outputPath);
+    let result: { stdout: string; stderr: string };
 
+    try {
+      result = await runCodexExec(codexPath, args);
+    } catch (error) {
+      if (!isCodexConfigLoadError(error)) {
+        throw error;
+      }
+
+      result = await runCodexExec(
+        codexPath,
+        buildCodexExecArgs(prompt, outputPath, {
+          ignoreUserConfig: true,
+        }),
+      );
+    }
+
+    const { stdout, stderr } = result;
     const outputFile = await readFile(outputPath, "utf8").catch(() => "");
     const output = outputFile.trim() || stdout.trim();
 
@@ -429,6 +436,29 @@ async function generateWithCodex(
   } finally {
     await unlink(outputPath).catch(() => undefined);
   }
+}
+
+function buildCodexExecArgs(
+  prompt: string,
+  outputPath: string,
+  options: { ignoreUserConfig?: boolean } = {},
+): string[] {
+  return [
+    "exec",
+    ...(options.ignoreUserConfig ? ["--ignore-user-config"] : []),
+    "--sandbox",
+    "read-only",
+    "--ephemeral",
+    "--color",
+    "never",
+    "--output-last-message",
+    outputPath,
+    prompt,
+  ];
+}
+
+function isCodexConfigLoadError(error: unknown): boolean {
+  return getErrorMessage(error).includes("Error loading config.toml");
 }
 
 function extractOpenAiText(response: unknown): string {

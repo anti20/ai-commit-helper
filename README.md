@@ -8,6 +8,30 @@ AI Commit Helper is a local AI-powered Git CLI tool. It reads staged Git changes
 
 It runs from your terminal inside any Git repository and uses `git diff --staged` as its input.
 
+## Features
+
+- Reads `git diff --staged` and ignores unstaged changes
+- Generate clean commit messages from staged Git changes
+- Support multi-line commit messages with concise bullet bodies
+- Generate changelog entries for commit workflows
+- Generate PR descriptions from staged changes with `--pr`
+- Keep default output focused on commit message and changelog only
+- Generate clean PR markdown with Summary, Changes, Why, Testing, and Risk sections
+- Suggest PR testing steps from the diff without claiming tests were run
+- Support Codex and OpenAI providers
+- Prompt for provider selection when multiple providers are available
+- Use automatic goal inference or manual goal input
+- Treat an empty goal answer like automatic goal inference
+- Show loading feedback while AI generation is running
+- Commit directly from the generated commit message
+- Commit and push in one step
+- Copy commit messages or PR descriptions to the clipboard
+- Preview the staged diff with `--show-diff`
+- Hide the diff by default
+- Handle missing providers and git errors with readable messages
+- Install with one command using the smart installer
+- Uninstall safely with `ai-commit-helper uninstall`
+
 ## Installation
 
 Recommended one-time install:
