@@ -25,6 +25,7 @@ It runs from your terminal inside any Git repository and uses `git diff --staged
 - Show loading feedback while AI generation is running
 - Commit directly from the generated commit message
 - Commit and push in one step
+- Edit generated commit messages before choosing the final action
 - Copy commit messages or PR descriptions to the clipboard
 - Preview the staged diff with `--show-diff`
 - Hide the diff by default
@@ -89,7 +90,11 @@ Then it asks what to do:
 - `Commit`
 - `Commit and push`
 - `Copy commit message`
+- `Edit commit message`
 - `Do nothing`
+
+When editing a commit message, the current message is pre-filled in the terminal
+prompt so you can modify it before choosing the final action.
 
 ## Usage
 

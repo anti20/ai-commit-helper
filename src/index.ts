@@ -47,7 +47,7 @@ type CliOptions = {
 
 type OutputMode = "summary" | "pr";
 type PrAction = "copy" | "none";
-type SummaryAction = "commit" | "commit-push" | "copy" | "none";
+type SummaryAction = "commit" | "commit-push" | "copy" | "edit" | "none";
 
 type UninstallSummary = {
   removedSymlink: boolean;
@@ -733,6 +733,10 @@ async function askForSummaryAction(): Promise<SummaryAction | null> {
         value: "copy",
       },
       {
+        title: "Edit commit message",
+        value: "edit",
+      },
+      {
         title: "Do nothing",
         value: "none",
       },
@@ -740,6 +744,28 @@ async function askForSummaryAction(): Promise<SummaryAction | null> {
   });
 
   return (response.action as SummaryAction | undefined) ?? null;
+}
+
+async function askForEditedCommitMessage(commitMessage: string): Promise<string> {
+  const response = await prompts({
+    type: "text",
+    name: "commitMessage",
+    message: "Edit commit message:",
+    initial: commitMessage,
+  });
+
+  if (typeof response.commitMessage !== "string") {
+    return commitMessage;
+  }
+
+  const editedCommitMessage = response.commitMessage.trim();
+
+  if (editedCommitMessage.length === 0) {
+    console.log(chalk.yellow("Commit message cannot be empty. Keeping previous message."));
+    return commitMessage;
+  }
+
+  return editedCommitMessage;
 }
 
 async function commitWithMessage(commitMessage: string): Promise<void> {
@@ -763,26 +789,37 @@ async function commitWithMessage(commitMessage: string): Promise<void> {
 }
 
 async function handleSummaryActions(generatedOutput: string): Promise<void> {
-  const action = await askForSummaryAction();
+  let commitMessage = extractCommitMessage(generatedOutput);
 
-  if (!action || action === "none") {
+  while (true) {
+    const action = await askForSummaryAction();
+
+    if (!action || action === "none") {
+      return;
+    }
+
+    if (action === "edit") {
+      commitMessage = await askForEditedCommitMessage(commitMessage);
+      console.log(chalk.green("Updated commit message:"));
+      console.log(commitMessage);
+      continue;
+    }
+
+    if (action === "copy") {
+      await copyToClipboard(commitMessage);
+      console.log(chalk.green("Copied commit message to clipboard."));
+      return;
+    }
+
+    await commitWithMessage(commitMessage);
+    console.log(chalk.green("Created commit."));
+
+    if (action === "commit-push") {
+      await runGit(["push"]);
+      console.log(chalk.green("Pushed commit."));
+    }
+
     return;
-  }
-
-  const commitMessage = extractCommitMessage(generatedOutput);
-
-  if (action === "copy") {
-    await copyToClipboard(commitMessage);
-    console.log(chalk.green("Copied commit message to clipboard."));
-    return;
-  }
-
-  await commitWithMessage(commitMessage);
-  console.log(chalk.green("Created commit."));
-
-  if (action === "commit-push") {
-    await runGit(["push"]);
-    console.log(chalk.green("Pushed commit."));
   }
 }
 
