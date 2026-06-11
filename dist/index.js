@@ -3,7 +3,7 @@ import chalk from "chalk";
 import { randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { constants } from "node:fs";
-import { access, lstat, readdir, readFile, rm, unlink, writeFile, } from "node:fs/promises";
+import { access, lstat, mkdir, readdir, readFile, rm, unlink, writeFile, } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,6 +15,7 @@ const execFileAsync = promisify(execFile);
 const diffPreviewLength = 1500;
 const generationTimeoutMs = 120_000;
 const installerPathLine = 'export PATH="$HOME/.local/bin:$PATH"';
+const userConfigPath = join(homedir(), ".config", "ai-commit-helper", "config.json");
 async function runGit(args) {
     const { stdout } = await execFileAsync("git", args, {
         cwd: process.cwd(),
@@ -72,6 +73,67 @@ function parseStyleCommitCount(value) {
         throw new Error("--style-commits must be a non-negative integer.");
     }
     return parsed;
+}
+function parseBooleanConfigValue(value) {
+    const normalizedValue = value.trim().toLowerCase();
+    if (["true", "1", "yes", "on"].includes(normalizedValue)) {
+        return true;
+    }
+    if (["false", "0", "no", "off"].includes(normalizedValue)) {
+        return false;
+    }
+    throw new Error("styleMatch must be true or false.");
+}
+function parseUserConfig(contents) {
+    let parsed;
+    try {
+        parsed = JSON.parse(contents);
+    }
+    catch {
+        throw new Error(`Invalid JSON in ${userConfigPath}.`);
+    }
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        throw new Error(`Invalid config in ${userConfigPath}.`);
+    }
+    const rawConfig = parsed;
+    const config = {};
+    if (rawConfig.styleCommits !== undefined) {
+        if (typeof rawConfig.styleCommits !== "number" ||
+            !Number.isInteger(rawConfig.styleCommits) ||
+            rawConfig.styleCommits < 0) {
+            throw new Error("Config value styleCommits must be a non-negative integer.");
+        }
+        config.styleCommits = rawConfig.styleCommits;
+    }
+    if (rawConfig.styleMatch !== undefined) {
+        if (typeof rawConfig.styleMatch !== "boolean") {
+            throw new Error("Config value styleMatch must be true or false.");
+        }
+        config.styleMatch = rawConfig.styleMatch;
+    }
+    return config;
+}
+async function readUserConfig() {
+    if (!(await pathExists(userConfigPath))) {
+        return {};
+    }
+    return parseUserConfig(await readFile(userConfigPath, "utf8"));
+}
+async function writeUserConfig(config) {
+    await mkdir(dirname(userConfigPath), { recursive: true });
+    await writeFile(userConfigPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+}
+function resolveStyleCommitCount(options, config) {
+    if (options.styleMatch === false) {
+        return 0;
+    }
+    if (options.styleCommits !== undefined) {
+        return parseStyleCommitCount(options.styleCommits);
+    }
+    if (config.styleMatch === false) {
+        return 0;
+    }
+    return config.styleCommits ?? 5;
 }
 async function findCommandInPath(command) {
     try {
@@ -818,14 +880,46 @@ async function runUninstall() {
     }
     printUninstallSummary(summary);
 }
+async function runConfigSet(key, value) {
+    try {
+        const config = await readUserConfig();
+        let savedValue;
+        if (key === "styleCommits") {
+            config.styleCommits = parseStyleCommitCount(value);
+            savedValue = String(config.styleCommits);
+        }
+        else if (key === "styleMatch") {
+            config.styleMatch = parseBooleanConfigValue(value);
+            savedValue = String(config.styleMatch);
+        }
+        else {
+            throw new Error("Unsupported config key. Supported keys: styleCommits, styleMatch.");
+        }
+        await writeUserConfig(config);
+        console.log(chalk.green(`Saved ${key}=${savedValue} to ${userConfigPath}.`));
+    }
+    catch (error) {
+        console.error(chalk.red(getErrorMessage(error)));
+        process.exitCode = 1;
+    }
+}
 async function run(options) {
     if (!(await isInsideGitRepository())) {
         console.error(chalk.red("Error: current directory is not inside a Git repository."));
         process.exitCode = 1;
         return;
     }
+    let userConfig;
     try {
-        const styleCommitCount = parseStyleCommitCount(options.styleCommits);
+        userConfig = await readUserConfig();
+    }
+    catch (error) {
+        console.error(chalk.red(getErrorMessage(error)));
+        process.exitCode = 1;
+        return;
+    }
+    try {
+        const styleCommitCount = resolveStyleCommitCount(options, userConfig);
         if (options.auto && options.autoStage !== false) {
             await stageAllChanges();
             console.log(chalk.green("Staged changes with git add ."));
@@ -916,9 +1010,18 @@ program
     await runUninstall();
 });
 program
+    .command("config")
+    .description("manage ai-commit-helper configuration")
+    .command("set <key> <value>")
+    .description("set a configuration value")
+    .action(async (key, value) => {
+    await runConfigSet(key, value);
+});
+program
     .option("--auto", "stage all changes and infer the goal without prompting")
     .option("--no-auto-stage", "do not run git add . automatically with --auto")
-    .option("--style-commits <n>", "number of recent commit messages to use as a style guide", "5")
+    .option("--style-commits <n>", "number of recent commit messages to use as a style guide")
+    .option("--no-style-match", "do not match generated commit messages to recent commits")
     .option("--pr", "generate a markdown pull request description")
     .option("--show-diff", "print a preview of the staged diff")
     .option("--provider <provider>", "AI provider to use: codex or openai. Defaults to automatic detection.", "auto")

@@ -14,6 +14,7 @@ It runs from your terminal inside any Git repository and uses `git diff --staged
 - Generate clean commit messages from staged Git changes
 - Match generated commit message style to the previous 5 commits
 - Configure style matching history with `--style-commits <n>`
+- Disable commit style matching with `--no-style-match`
 - Support multi-line commit messages with concise bullet bodies
 - Generate changelog entries for commit workflows
 - Generate PR descriptions from staged changes with `--pr`
@@ -125,6 +126,19 @@ Use more recent commits as style examples:
 ai-commit-helper --auto --style-commits 10
 ```
 
+Disable style matching:
+
+```bash
+ai-commit-helper --auto --no-style-match
+```
+
+Persist style matching defaults:
+
+```bash
+ai-commit-helper config set styleCommits 10
+ai-commit-helper config set styleMatch false
+```
+
 Generate a PR description:
 
 ```bash
@@ -222,6 +236,38 @@ Disables the automatic `git add .` behavior when used with `--auto`.
 
 Sets how many recent commit messages are used as style examples when generating
 a commit message. Defaults to `5`. Use `0` to disable style matching.
+
+### `--no-style-match`
+
+Disables recent commit style matching. This takes precedence over
+`--style-commits <n>`.
+
+## Configuration
+
+Persistent configuration is stored in:
+
+```text
+~/.config/ai-commit-helper/config.json
+```
+
+Supported settings:
+
+- `styleCommits`: number of recent commit messages to use as style examples
+- `styleMatch`: whether recent commit style matching is enabled
+
+Examples:
+
+```bash
+ai-commit-helper config set styleCommits 10
+ai-commit-helper config set styleMatch false
+ai-commit-helper config set styleMatch true
+```
+
+Precedence:
+
+- CLI flags win for the current run.
+- Config values are used when no matching CLI flag is provided.
+- Defaults are `styleMatch: true` and `styleCommits: 5`.
 
 ### `--pr`
 
