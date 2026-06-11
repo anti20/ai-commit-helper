@@ -2,7 +2,7 @@
 
 AI Commit Helper is a local AI-powered Git CLI tool. It reads staged Git changes and helps generate:
 
-- conventional commit messages
+- commit messages that match the style of the repository's recent commits
 - changelog entries
 - pull request descriptions
 
@@ -12,6 +12,7 @@ It runs from your terminal inside any Git repository and uses `git diff --staged
 
 - Reads `git diff --staged` and ignores unstaged changes
 - Generate clean commit messages from staged Git changes
+- Match generated commit message style to the previous 5 commits
 - Support multi-line commit messages with concise bullet bodies
 - Generate changelog entries for commit workflows
 - Generate PR descriptions from staged changes with `--pr`

@@ -92,6 +92,23 @@ async function stageAllChanges(): Promise<void> {
   await runGit(["add", "."]);
 }
 
+async function readRecentCommitMessages(limit = 5): Promise<string[]> {
+  try {
+    const output = await runGit([
+      "log",
+      `-${limit}`,
+      "--format=%B%x1e",
+    ]);
+
+    return output
+      .split("\x1e")
+      .map((message) => message.trim())
+      .filter((message) => message.length > 0);
+  } catch {
+    return [];
+  }
+}
+
 async function findCommandInPath(command: string): Promise<string | null> {
   try {
     const { stdout } = await execFileAsync("sh", ["-c", `command -v ${command}`], {
@@ -270,7 +287,11 @@ async function askForUserGoal(): Promise<string | undefined> {
   return goal.length > 0 ? goal : undefined;
 }
 
-function buildSummaryPrompt(stagedDiff: string, userGoal?: string): string {
+function buildSummaryPrompt(
+  stagedDiff: string,
+  userGoal?: string,
+  recentCommitMessages: string[] = [],
+): string {
   const goalSection = userGoal
     ? `User goal:
 ${userGoal}
@@ -279,6 +300,20 @@ Use the user goal as important context. If the staged diff appears to contradict
 
 `
     : "User goal:\nNot provided.\n\n";
+  const commitStyleSection =
+    recentCommitMessages.length > 0
+      ? `Recent commit messages to match stylistically:
+${recentCommitMessages
+  .map((message, index) => `${index + 1}. ${message}`)
+  .join("\n\n")}
+
+Use these recent commit messages as the primary style guide for the new commit message. Match their format, casing, punctuation, level of detail, language, and whether they use a body. If the recent commits consistently use conventional commit format, use it too. If they do not, do not force conventional commit format.
+
+`
+      : `Recent commit messages to match stylistically:
+Not available.
+
+`;
 
   return `You are generating human-readable Git change summaries.
 
@@ -290,21 +325,21 @@ Keep the output short and easy to copy.
 Use the staged git diff and optional user goal below to generate exactly this structured output:
 
 Commit message:
-<type>(<scope>): <summary>
+<style-matched commit title>
 
-<optional bullet body when there are multiple meaningful changes>
+<optional style-matched body when the repository's recent commits use one>
 
 Changelog:
 <user-facing changelog bullets>
 
 Commit message rules:
-- Use conventional commit format.
-- The first line must be a short title in this exact shape: <type>(<scope>): <summary>.
+- Match the style of the recent commit messages below.
+- The first line must be a short title.
 - Summarize the overall change, not just the first or most obvious change.
-- If multiple major changes exist, use a broader title such as "feat(cli): improve generated output quality".
+- If multiple major changes exist, use a broader title.
 - A multi-line commit message is allowed.
-- Add a commit body only when there are multiple meaningful changes.
-- When adding a body, use bullets and include only the top 3-4 most important changes.
+- Add a commit body only when it fits the recent commit style and there are multiple meaningful changes.
+- When adding a body, follow the recent commit style and include only the top 3-4 most important changes.
 - Do not include every tiny change in the commit body.
 
 Changelog rules:
@@ -316,7 +351,7 @@ Changelog rules:
 Do not include a PR description.
 Do not include testing notes.
 
-${goalSection}Staged git diff:
+${commitStyleSection}${goalSection}Staged git diff:
 \`\`\`diff
 ${stagedDiff}
 \`\`\``;
@@ -373,10 +408,11 @@ function buildGenerationPrompt(
   mode: OutputMode,
   stagedDiff: string,
   userGoal?: string,
+  recentCommitMessages: string[] = [],
 ): string {
   return mode === "pr"
     ? buildPrPrompt(stagedDiff, userGoal)
-    : buildSummaryPrompt(stagedDiff, userGoal);
+    : buildSummaryPrompt(stagedDiff, userGoal, recentCommitMessages);
 }
 
 function getErrorMessage(error: unknown): string {
@@ -402,8 +438,14 @@ async function generateWithCodex(
   mode: OutputMode,
   stagedDiff: string,
   userGoal?: string,
+  recentCommitMessages: string[] = [],
 ): Promise<string> {
-  const prompt = buildGenerationPrompt(mode, stagedDiff, userGoal);
+  const prompt = buildGenerationPrompt(
+    mode,
+    stagedDiff,
+    userGoal,
+    recentCommitMessages,
+  );
   const outputPath = join(
     tmpdir(),
     `ai-commit-helper-codex-${randomUUID()}.txt`,
@@ -515,8 +557,14 @@ async function generateWithOpenAi(
   mode: OutputMode,
   stagedDiff: string,
   userGoal?: string,
+  recentCommitMessages: string[] = [],
 ): Promise<string> {
-  const prompt = buildGenerationPrompt(mode, stagedDiff, userGoal);
+  const prompt = buildGenerationPrompt(
+    mode,
+    stagedDiff,
+    userGoal,
+    recentCommitMessages,
+  );
   const controller = new AbortController();
   const timeout = setTimeout(() => {
     controller.abort();
@@ -622,13 +670,26 @@ async function generateSummary(
   mode: OutputMode,
   stagedDiff: string,
   userGoal?: string,
+  recentCommitMessages: string[] = [],
 ): Promise<string> {
   if (provider.name === "codex") {
-    return generateWithCodex(provider.codexPath, mode, stagedDiff, userGoal);
+    return generateWithCodex(
+      provider.codexPath,
+      mode,
+      stagedDiff,
+      userGoal,
+      recentCommitMessages,
+    );
   }
 
   if (provider.name === "openai") {
-    return generateWithOpenAi(provider.apiKey, mode, stagedDiff, userGoal);
+    return generateWithOpenAi(
+      provider.apiKey,
+      mode,
+      stagedDiff,
+      userGoal,
+      recentCommitMessages,
+    );
   }
 
   throw new Error(`Unsupported AI provider: ${provider satisfies never}.`);
@@ -1114,6 +1175,8 @@ async function run(options: CliOptions): Promise<void> {
     try {
       const mode: OutputMode = options.pr ? "pr" : "summary";
       const userGoal = options.auto ? undefined : await askForUserGoal();
+      const recentCommitMessages =
+        mode === "summary" ? await readRecentCommitMessages(5) : [];
       const spinner = ora(`Generating output with ${aiProvider.name}...`).start();
       let generatedSummary: string;
 
@@ -1123,6 +1186,7 @@ async function run(options: CliOptions): Promise<void> {
           mode,
           stagedDiff,
           userGoal,
+          recentCommitMessages,
         );
         spinner.stop();
       } catch (error) {
