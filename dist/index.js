@@ -303,7 +303,7 @@ async function askForUserGoal() {
     const goal = typeof response.goal === "string" ? response.goal.trim() : "";
     return goal.length > 0 ? goal : undefined;
 }
-function buildSummaryPrompt(stagedDiff, userGoal, recentCommitMessages = []) {
+function buildSummaryPrompt(stagedDiff, userGoal, recentCommitMessages = [], includeChangelog = false) {
     const goalSection = userGoal
         ? `User goal:
 ${userGoal}
@@ -325,6 +325,27 @@ Use these recent commit messages as the primary style guide for the new commit m
 Not available.
 
 `;
+    const outputStructure = includeChangelog
+        ? `Commit message:
+<style-matched commit title>
+
+<optional style-matched body when the repository's recent commits use one>
+
+Changelog:
+<user-facing changelog bullets>`
+        : `Commit message:
+<style-matched commit title>
+
+<optional style-matched body when the repository's recent commits use one>`;
+    const changelogRules = includeChangelog
+        ? `Changelog rules:
+- Include all meaningful user-facing changes.
+- The changelog can include more than 3-4 items when the diff warrants it.
+- Do not include purely internal refactors unless they affect user behavior.
+- Use clear user-facing wording.
+
+`
+        : "Do not include a Changelog section.\n\n";
     return `You are generating human-readable Git change summaries.
 
 Do not modify files.
@@ -334,13 +355,7 @@ Keep the output short and easy to copy.
 
 Use the staged git diff and optional user goal below to generate exactly this structured output:
 
-Commit message:
-<style-matched commit title>
-
-<optional style-matched body when the repository's recent commits use one>
-
-Changelog:
-<user-facing changelog bullets>
+${outputStructure}
 
 Commit message rules:
 - Match the style of the recent commit messages below.
@@ -352,12 +367,7 @@ Commit message rules:
 - When adding a body, follow the recent commit style and include only the top 3-4 most important changes.
 - Do not include every tiny change in the commit body.
 
-Changelog rules:
-- Include all meaningful user-facing changes.
-- The changelog can include more than 3-4 items when the diff warrants it.
-- Do not include purely internal refactors unless they affect user behavior.
-- Use clear user-facing wording.
-
+${changelogRules}
 Do not include a PR description.
 Do not include testing notes.
 
@@ -411,10 +421,10 @@ ${goalSection}Staged git diff:
 ${stagedDiff}
 \`\`\``;
 }
-function buildGenerationPrompt(mode, stagedDiff, userGoal, recentCommitMessages = []) {
+function buildGenerationPrompt(mode, stagedDiff, userGoal, recentCommitMessages = [], includeChangelog = false) {
     return mode === "pr"
         ? buildPrPrompt(stagedDiff, userGoal)
-        : buildSummaryPrompt(stagedDiff, userGoal, recentCommitMessages);
+        : buildSummaryPrompt(stagedDiff, userGoal, recentCommitMessages, includeChangelog);
 }
 function getErrorMessage(error) {
     if (typeof error === "object" &&
@@ -429,8 +439,8 @@ function getErrorMessage(error) {
     }
     return String(error);
 }
-async function generateWithCodex(codexPath, mode, stagedDiff, userGoal, recentCommitMessages = []) {
-    const prompt = buildGenerationPrompt(mode, stagedDiff, userGoal, recentCommitMessages);
+async function generateWithCodex(codexPath, mode, stagedDiff, userGoal, recentCommitMessages = [], includeChangelog = false) {
+    const prompt = buildGenerationPrompt(mode, stagedDiff, userGoal, recentCommitMessages, includeChangelog);
     const outputPath = join(tmpdir(), `ai-commit-helper-codex-${randomUUID()}.txt`);
     try {
         const args = buildCodexExecArgs(prompt, outputPath);
@@ -507,8 +517,8 @@ function extractOpenAiText(response) {
     }
     return "";
 }
-async function generateWithOpenAi(apiKey, mode, stagedDiff, userGoal, recentCommitMessages = []) {
-    const prompt = buildGenerationPrompt(mode, stagedDiff, userGoal, recentCommitMessages);
+async function generateWithOpenAi(apiKey, mode, stagedDiff, userGoal, recentCommitMessages = [], includeChangelog = false) {
+    const prompt = buildGenerationPrompt(mode, stagedDiff, userGoal, recentCommitMessages, includeChangelog);
     const controller = new AbortController();
     const timeout = setTimeout(() => {
         controller.abort();
@@ -588,12 +598,12 @@ function runCodexExec(codexPath, args) {
         });
     });
 }
-async function generateSummary(provider, mode, stagedDiff, userGoal, recentCommitMessages = []) {
+async function generateSummary(provider, mode, stagedDiff, userGoal, recentCommitMessages = [], includeChangelog = false) {
     if (provider.name === "codex") {
-        return generateWithCodex(provider.codexPath, mode, stagedDiff, userGoal, recentCommitMessages);
+        return generateWithCodex(provider.codexPath, mode, stagedDiff, userGoal, recentCommitMessages, includeChangelog);
     }
     if (provider.name === "openai") {
-        return generateWithOpenAi(provider.apiKey, mode, stagedDiff, userGoal, recentCommitMessages);
+        return generateWithOpenAi(provider.apiKey, mode, stagedDiff, userGoal, recentCommitMessages, includeChangelog);
     }
     throw new Error(`Unsupported AI provider: ${provider}.`);
 }
@@ -1004,11 +1014,12 @@ async function run(options) {
         try {
             const mode = options.pr ? "pr" : "summary";
             const userGoal = options.auto ? undefined : await askForUserGoal();
+            const includeChangelog = mode === "summary" && options.changelog === true;
             const recentCommitMessages = mode === "summary" ? await readRecentCommitMessages(styleCommitCount) : [];
             const generateOutput = async (message) => {
                 const spinner = ora(message).start();
                 try {
-                    const generatedSummary = await generateSummary(aiProvider, mode, stagedDiff, userGoal, recentCommitMessages);
+                    const generatedSummary = await generateSummary(aiProvider, mode, stagedDiff, userGoal, recentCommitMessages, includeChangelog);
                     spinner.stop();
                     return generatedSummary;
                 }
@@ -1067,6 +1078,7 @@ program
     .option("--no-auto-stage", "do not run git add . automatically with --auto")
     .option("--style-commits <n>", "number of recent commit messages to use as a style guide")
     .option("--no-style-match", "do not match generated commit messages to recent commits")
+    .option("--changelog", "include a changelog section in commit output")
     .option("--pr", "generate a markdown pull request description")
     .option("--show-diff", "print a preview of the staged diff")
     .option("--provider <provider>", "AI provider to use: codex or openai. Defaults to automatic detection.", "auto")

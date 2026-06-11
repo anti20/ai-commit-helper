@@ -43,6 +43,7 @@ type ProviderSelection =
 type CliOptions = {
   auto?: boolean;
   autoStage?: boolean;
+  changelog?: boolean;
   pr?: boolean;
   showDiff?: boolean;
   provider?: ProviderName;
@@ -444,6 +445,7 @@ function buildSummaryPrompt(
   stagedDiff: string,
   userGoal?: string,
   recentCommitMessages: string[] = [],
+  includeChangelog = false,
 ): string {
   const goalSection = userGoal
     ? `User goal:
@@ -467,6 +469,27 @@ Use these recent commit messages as the primary style guide for the new commit m
 Not available.
 
 `;
+  const outputStructure = includeChangelog
+    ? `Commit message:
+<style-matched commit title>
+
+<optional style-matched body when the repository's recent commits use one>
+
+Changelog:
+<user-facing changelog bullets>`
+    : `Commit message:
+<style-matched commit title>
+
+<optional style-matched body when the repository's recent commits use one>`;
+  const changelogRules = includeChangelog
+    ? `Changelog rules:
+- Include all meaningful user-facing changes.
+- The changelog can include more than 3-4 items when the diff warrants it.
+- Do not include purely internal refactors unless they affect user behavior.
+- Use clear user-facing wording.
+
+`
+    : "Do not include a Changelog section.\n\n";
 
   return `You are generating human-readable Git change summaries.
 
@@ -477,13 +500,7 @@ Keep the output short and easy to copy.
 
 Use the staged git diff and optional user goal below to generate exactly this structured output:
 
-Commit message:
-<style-matched commit title>
-
-<optional style-matched body when the repository's recent commits use one>
-
-Changelog:
-<user-facing changelog bullets>
+${outputStructure}
 
 Commit message rules:
 - Match the style of the recent commit messages below.
@@ -495,12 +512,7 @@ Commit message rules:
 - When adding a body, follow the recent commit style and include only the top 3-4 most important changes.
 - Do not include every tiny change in the commit body.
 
-Changelog rules:
-- Include all meaningful user-facing changes.
-- The changelog can include more than 3-4 items when the diff warrants it.
-- Do not include purely internal refactors unless they affect user behavior.
-- Use clear user-facing wording.
-
+${changelogRules}
 Do not include a PR description.
 Do not include testing notes.
 
@@ -562,10 +574,16 @@ function buildGenerationPrompt(
   stagedDiff: string,
   userGoal?: string,
   recentCommitMessages: string[] = [],
+  includeChangelog = false,
 ): string {
   return mode === "pr"
     ? buildPrPrompt(stagedDiff, userGoal)
-    : buildSummaryPrompt(stagedDiff, userGoal, recentCommitMessages);
+    : buildSummaryPrompt(
+        stagedDiff,
+        userGoal,
+        recentCommitMessages,
+        includeChangelog,
+      );
 }
 
 function getErrorMessage(error: unknown): string {
@@ -592,12 +610,14 @@ async function generateWithCodex(
   stagedDiff: string,
   userGoal?: string,
   recentCommitMessages: string[] = [],
+  includeChangelog = false,
 ): Promise<string> {
   const prompt = buildGenerationPrompt(
     mode,
     stagedDiff,
     userGoal,
     recentCommitMessages,
+    includeChangelog,
   );
   const outputPath = join(
     tmpdir(),
@@ -711,12 +731,14 @@ async function generateWithOpenAi(
   stagedDiff: string,
   userGoal?: string,
   recentCommitMessages: string[] = [],
+  includeChangelog = false,
 ): Promise<string> {
   const prompt = buildGenerationPrompt(
     mode,
     stagedDiff,
     userGoal,
     recentCommitMessages,
+    includeChangelog,
   );
   const controller = new AbortController();
   const timeout = setTimeout(() => {
@@ -824,6 +846,7 @@ async function generateSummary(
   stagedDiff: string,
   userGoal?: string,
   recentCommitMessages: string[] = [],
+  includeChangelog = false,
 ): Promise<string> {
   if (provider.name === "codex") {
     return generateWithCodex(
@@ -832,6 +855,7 @@ async function generateSummary(
       stagedDiff,
       userGoal,
       recentCommitMessages,
+      includeChangelog,
     );
   }
 
@@ -842,6 +866,7 @@ async function generateSummary(
       stagedDiff,
       userGoal,
       recentCommitMessages,
+      includeChangelog,
     );
   }
 
@@ -1383,6 +1408,7 @@ async function run(options: CliOptions): Promise<void> {
     try {
       const mode: OutputMode = options.pr ? "pr" : "summary";
       const userGoal = options.auto ? undefined : await askForUserGoal();
+      const includeChangelog = mode === "summary" && options.changelog === true;
       const recentCommitMessages =
         mode === "summary" ? await readRecentCommitMessages(styleCommitCount) : [];
       const generateOutput = async (message: string): Promise<string> => {
@@ -1395,6 +1421,7 @@ async function run(options: CliOptions): Promise<void> {
             stagedDiff,
             userGoal,
             recentCommitMessages,
+            includeChangelog,
           );
           spinner.stop();
           return generatedSummary;
@@ -1467,6 +1494,7 @@ program
     "number of recent commit messages to use as a style guide",
   )
   .option("--no-style-match", "do not match generated commit messages to recent commits")
+  .option("--changelog", "include a changelog section in commit output")
   .option("--pr", "generate a markdown pull request description")
   .option("--show-diff", "print a preview of the staged diff")
   .option(

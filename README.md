@@ -3,7 +3,7 @@
 AI Commit Helper is a local AI-powered Git CLI tool. It reads staged Git changes and helps generate:
 
 - commit messages that match the style of the repository's recent commits
-- changelog entries
+- optional changelog entries
 - pull request descriptions
 
 It runs from your terminal inside any Git repository and uses `git diff --staged` as its input.
@@ -16,9 +16,9 @@ It runs from your terminal inside any Git repository and uses `git diff --staged
 - Configure style matching history with `--style-commits <n>`
 - Disable commit style matching with `--no-style-match`
 - Support multi-line commit messages with concise bullet bodies
-- Generate changelog entries for commit workflows
+- Generate changelog entries for commit workflows with `--changelog`
 - Generate PR descriptions from staged changes with `--pr`
-- Keep default output focused on commit message and changelog only
+- Keep default output focused on the commit message only
 - Generate clean PR markdown with Summary, Changes, Why, Testing, and Risk sections
 - Suggest PR testing steps from the diff without claiming tests were run
 - Support Codex and OpenAI providers
@@ -88,7 +88,8 @@ ai-commit-helper --auto
 The CLI generates commit-focused output:
 
 - `Commit message`
-- `Changelog`
+
+Use `--changelog` to include a `Changelog` section.
 
 Then it asks what to do:
 
@@ -132,6 +133,12 @@ Disable style matching:
 
 ```bash
 ai-commit-helper --auto --no-style-match
+```
+
+Include a changelog section:
+
+```bash
+ai-commit-helper --auto --changelog
 ```
 
 Persist style matching defaults:
@@ -244,6 +251,11 @@ a commit message. Defaults to `5`. Use `0` to disable style matching.
 Disables recent commit style matching. This takes precedence over
 `--style-commits <n>`.
 
+### `--changelog`
+
+Includes a `Changelog` section in commit-focused output. Without this flag, the
+CLI prints only the generated commit message.
+
 ## Configuration
 
 Persistent configuration is stored in:
@@ -273,7 +285,7 @@ Precedence:
 
 ### `--pr`
 
-Generates a PR markdown description instead of commit message and changelog output.
+Generates a PR markdown description instead of commit-focused output.
 
 ### `--show-diff`
 
