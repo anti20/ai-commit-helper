@@ -57,7 +57,13 @@ type UserConfig = {
 
 type OutputMode = "summary" | "pr";
 type PrAction = "copy" | "none";
-type SummaryAction = "commit" | "commit-push" | "copy" | "edit" | "none";
+type SummaryAction =
+  | "commit"
+  | "commit-push"
+  | "copy"
+  | "regenerate"
+  | "edit"
+  | "none";
 
 type UninstallSummary = {
   removedSymlink: boolean;
@@ -908,6 +914,10 @@ async function askForSummaryAction(): Promise<SummaryAction | null> {
         value: "copy",
       },
       {
+        title: "Regenerate commit message",
+        value: "regenerate",
+      },
+      {
         title: "Edit commit message",
         value: "edit",
       },
@@ -1009,7 +1019,10 @@ async function commitWithMessage(commitMessage: string): Promise<void> {
   }
 }
 
-async function handleSummaryActions(generatedOutput: string): Promise<void> {
+async function handleSummaryActions(
+  generatedOutput: string,
+  regenerateSummary?: () => Promise<string>,
+): Promise<void> {
   let commitMessage = extractCommitMessage(generatedOutput);
 
   while (true) {
@@ -1017,6 +1030,18 @@ async function handleSummaryActions(generatedOutput: string): Promise<void> {
 
     if (!action || action === "none") {
       return;
+    }
+
+    if (action === "regenerate") {
+      if (!regenerateSummary) {
+        console.log(chalk.yellow("Regenerate is not available."));
+        continue;
+      }
+
+      generatedOutput = await regenerateSummary();
+      printGeneratedSummary(generatedOutput);
+      commitMessage = extractCommitMessage(generatedOutput);
+      continue;
     }
 
     if (action === "edit") {
@@ -1321,22 +1346,27 @@ async function run(options: CliOptions): Promise<void> {
       const userGoal = options.auto ? undefined : await askForUserGoal();
       const recentCommitMessages =
         mode === "summary" ? await readRecentCommitMessages(styleCommitCount) : [];
-      const spinner = ora(`Generating output with ${aiProvider.name}...`).start();
-      let generatedSummary: string;
+      const generateOutput = async (message: string): Promise<string> => {
+        const spinner = ora(message).start();
 
-      try {
-        generatedSummary = await generateSummary(
-          aiProvider,
-          mode,
-          stagedDiff,
-          userGoal,
-          recentCommitMessages,
-        );
-        spinner.stop();
-      } catch (error) {
-        spinner.stop();
-        throw error;
-      }
+        try {
+          const generatedSummary = await generateSummary(
+            aiProvider,
+            mode,
+            stagedDiff,
+            userGoal,
+            recentCommitMessages,
+          );
+          spinner.stop();
+          return generatedSummary;
+        } catch (error) {
+          spinner.stop();
+          throw error;
+        }
+      };
+      const generatedSummary = await generateOutput(
+        `Generating output with ${aiProvider.name}...`,
+      );
 
       printGeneratedSummary(generatedSummary);
 
@@ -1344,7 +1374,9 @@ async function run(options: CliOptions): Promise<void> {
         if (mode === "pr") {
           await handlePrActions(generatedSummary);
         } else {
-          await handleSummaryActions(generatedSummary);
+          await handleSummaryActions(generatedSummary, () =>
+            generateOutput(`Regenerating commit message with ${aiProvider.name}...`),
+          );
         }
       } catch (error) {
         console.error(chalk.red(getErrorMessage(error)));

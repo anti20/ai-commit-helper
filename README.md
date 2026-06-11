@@ -94,6 +94,7 @@ Then it asks what to do:
 - `Commit`
 - `Commit and push`
 - `Copy commit message`
+- `Regenerate commit message`
 - `Edit commit message`
 - `Do nothing`
 

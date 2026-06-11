@@ -658,6 +658,10 @@ async function askForSummaryAction() {
                 value: "copy",
             },
             {
+                title: "Regenerate commit message",
+                value: "regenerate",
+            },
+            {
                 title: "Edit commit message",
                 value: "edit",
             },
@@ -732,12 +736,22 @@ async function commitWithMessage(commitMessage) {
         await unlink(messagePath).catch(() => undefined);
     }
 }
-async function handleSummaryActions(generatedOutput) {
+async function handleSummaryActions(generatedOutput, regenerateSummary) {
     let commitMessage = extractCommitMessage(generatedOutput);
     while (true) {
         const action = await askForSummaryAction();
         if (!action || action === "none") {
             return;
+        }
+        if (action === "regenerate") {
+            if (!regenerateSummary) {
+                console.log(chalk.yellow("Regenerate is not available."));
+                continue;
+            }
+            generatedOutput = await regenerateSummary();
+            printGeneratedSummary(generatedOutput);
+            commitMessage = extractCommitMessage(generatedOutput);
+            continue;
         }
         if (action === "edit") {
             commitMessage = await askForEditedCommitMessage(commitMessage);
@@ -963,23 +977,26 @@ async function run(options) {
             const mode = options.pr ? "pr" : "summary";
             const userGoal = options.auto ? undefined : await askForUserGoal();
             const recentCommitMessages = mode === "summary" ? await readRecentCommitMessages(styleCommitCount) : [];
-            const spinner = ora(`Generating output with ${aiProvider.name}...`).start();
-            let generatedSummary;
-            try {
-                generatedSummary = await generateSummary(aiProvider, mode, stagedDiff, userGoal, recentCommitMessages);
-                spinner.stop();
-            }
-            catch (error) {
-                spinner.stop();
-                throw error;
-            }
+            const generateOutput = async (message) => {
+                const spinner = ora(message).start();
+                try {
+                    const generatedSummary = await generateSummary(aiProvider, mode, stagedDiff, userGoal, recentCommitMessages);
+                    spinner.stop();
+                    return generatedSummary;
+                }
+                catch (error) {
+                    spinner.stop();
+                    throw error;
+                }
+            };
+            const generatedSummary = await generateOutput(`Generating output with ${aiProvider.name}...`);
             printGeneratedSummary(generatedSummary);
             try {
                 if (mode === "pr") {
                     await handlePrActions(generatedSummary);
                 }
                 else {
-                    await handleSummaryActions(generatedSummary);
+                    await handleSummaryActions(generatedSummary, () => generateOutput(`Regenerating commit message with ${aiProvider.name}...`));
                 }
             }
             catch (error) {
