@@ -25,6 +25,7 @@ It runs from your terminal inside any Git repository and uses `git diff --staged
 - Prompt for provider selection when multiple providers are available
 - Use automatic goal inference or manual goal input
 - Automatically stage changes with `git add .` when using `--auto`
+- Show which files were staged automatically
 - Disable automatic staging with `--no-auto-stage`
 - Treat an empty goal answer like automatic goal inference
 - Show loading feedback while AI generation is running
@@ -226,8 +227,8 @@ ai-commit-helper [options]
 
 ### `--auto`
 
-Runs `git add .`, skips the change-goal prompt, and lets the AI infer the goal
-from the staged diff.
+Runs `git add .`, prints the files that were staged automatically, skips the
+change-goal prompt, and lets the AI infer the goal from the staged diff.
 
 ### `--no-auto-stage`
 

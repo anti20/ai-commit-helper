@@ -47,6 +47,33 @@ async function readStagedDiff() {
 async function stageAllChanges() {
     await runGit(["add", "."]);
 }
+async function readAutoStageCandidateFiles() {
+    const status = await runGit(["status", "--short", "--", "."]);
+    return status
+        .split("\n")
+        .map((line) => line.trimEnd())
+        .filter((line) => line.length > 0)
+        .filter((line) => {
+        if (line.startsWith("?? ")) {
+            return true;
+        }
+        if (line.startsWith("!! ")) {
+            return false;
+        }
+        return line.length > 1 && line[1] !== " ";
+    })
+        .map((line) => line.slice(3));
+}
+function printAutoStagePreview(files) {
+    if (files.length === 0) {
+        console.log(chalk.cyan("No unstaged files to stage with git add ."));
+        return;
+    }
+    console.log(chalk.green(`Staged ${files.length} file${files.length === 1 ? "" : "s"} with git add .:`));
+    for (const file of files) {
+        console.log(`  ${file}`);
+    }
+}
 async function readRecentCommitMessages(limit = 5) {
     if (limit <= 0) {
         return [];
@@ -935,8 +962,9 @@ async function run(options) {
     try {
         const styleCommitCount = resolveStyleCommitCount(options, userConfig);
         if (options.auto && options.autoStage !== false) {
+            const autoStageCandidateFiles = await readAutoStageCandidateFiles();
             await stageAllChanges();
-            console.log(chalk.green("Staged changes with git add ."));
+            printAutoStagePreview(autoStageCandidateFiles);
         }
         const stagedDiff = await readStagedDiff();
         if (stagedDiff.trim().length === 0) {
