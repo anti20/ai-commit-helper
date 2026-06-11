@@ -44,6 +44,7 @@ type CliOptions = {
   pr?: boolean;
   showDiff?: boolean;
   provider?: ProviderName;
+  styleCommits?: string;
 };
 
 type OutputMode = "summary" | "pr";
@@ -93,6 +94,10 @@ async function stageAllChanges(): Promise<void> {
 }
 
 async function readRecentCommitMessages(limit = 5): Promise<string[]> {
+  if (limit <= 0) {
+    return [];
+  }
+
   try {
     const output = await runGit([
       "log",
@@ -107,6 +112,17 @@ async function readRecentCommitMessages(limit = 5): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+function parseStyleCommitCount(value: string | undefined): number {
+  const rawValue = value ?? "5";
+  const parsed = Number(rawValue);
+
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error("--style-commits must be a non-negative integer.");
+  }
+
+  return parsed;
 }
 
 async function findCommandInPath(command: string): Promise<string | null> {
@@ -1105,6 +1121,8 @@ async function run(options: CliOptions): Promise<void> {
   }
 
   try {
+    const styleCommitCount = parseStyleCommitCount(options.styleCommits);
+
     if (options.auto && options.autoStage !== false) {
       await stageAllChanges();
       console.log(chalk.green("Staged changes with git add ."));
@@ -1176,7 +1194,7 @@ async function run(options: CliOptions): Promise<void> {
       const mode: OutputMode = options.pr ? "pr" : "summary";
       const userGoal = options.auto ? undefined : await askForUserGoal();
       const recentCommitMessages =
-        mode === "summary" ? await readRecentCommitMessages(5) : [];
+        mode === "summary" ? await readRecentCommitMessages(styleCommitCount) : [];
       const spinner = ora(`Generating output with ${aiProvider.name}...`).start();
       let generatedSummary: string;
 
@@ -1238,6 +1256,11 @@ program
 program
   .option("--auto", "stage all changes and infer the goal without prompting")
   .option("--no-auto-stage", "do not run git add . automatically with --auto")
+  .option(
+    "--style-commits <n>",
+    "number of recent commit messages to use as a style guide",
+    "5",
+  )
   .option("--pr", "generate a markdown pull request description")
   .option("--show-diff", "print a preview of the staged diff")
   .option(

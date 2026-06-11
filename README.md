@@ -13,6 +13,7 @@ It runs from your terminal inside any Git repository and uses `git diff --staged
 - Reads `git diff --staged` and ignores unstaged changes
 - Generate clean commit messages from staged Git changes
 - Match generated commit message style to the previous 5 commits
+- Configure style matching history with `--style-commits <n>`
 - Support multi-line commit messages with concise bullet bodies
 - Generate changelog entries for commit workflows
 - Generate PR descriptions from staged changes with `--pr`
@@ -118,6 +119,12 @@ Keep the current staged changes unchanged when using automatic goal inference:
 ai-commit-helper --auto --no-auto-stage
 ```
 
+Use more recent commits as style examples:
+
+```bash
+ai-commit-helper --auto --style-commits 10
+```
+
 Generate a PR description:
 
 ```bash
@@ -210,6 +217,11 @@ from the staged diff.
 ### `--no-auto-stage`
 
 Disables the automatic `git add .` behavior when used with `--auto`.
+
+### `--style-commits <n>`
+
+Sets how many recent commit messages are used as style examples when generating
+a commit message. Defaults to `5`. Use `0` to disable style matching.
 
 ### `--pr`
 
