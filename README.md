@@ -94,9 +94,8 @@ Then it asks what to do:
 - `Edit commit message`
 - `Do nothing`
 
-When editing a commit message, the current message is pre-filled line by line in
-the terminal prompt so you can modify the existing text before choosing the final
-action.
+When editing a commit message, the current message opens as one editable text
+buffer in your terminal editor before choosing the final action.
 
 ## Usage
 

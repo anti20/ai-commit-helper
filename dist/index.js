@@ -6,7 +6,6 @@ import { constants } from "node:fs";
 import { access, lstat, readdir, readFile, rm, unlink, writeFile, } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { Command } from "commander";
@@ -568,59 +567,54 @@ async function askForSummaryAction() {
     });
     return response.action ?? null;
 }
-async function askEditableLine(message, initialValue) {
-    const readline = createInterface({
-        input: process.stdin,
-        output: process.stdout,
-        terminal: true,
-    });
-    return new Promise((resolve) => {
-        let resolved = false;
-        const finish = (answer) => {
-            if (resolved) {
-                return;
-            }
-            resolved = true;
-            readline.close();
-            resolve(answer);
-        };
-        readline.on("SIGINT", () => finish(null));
-        readline.question(message, (answer) => finish(answer));
-        readline.write(initialValue);
-    });
+function shellQuote(value) {
+    return `'${value.replaceAll("'", "'\\''")}'`;
+}
+async function findCommitMessageEditor() {
+    if (process.env.VISUAL) {
+        return process.env.VISUAL;
+    }
+    if (process.env.EDITOR) {
+        return process.env.EDITOR;
+    }
+    return ((await findCommandInPath("nano")) ??
+        (await findCommandInPath("vim")) ??
+        (await findCommandInPath("vi")));
 }
 async function askForEditedCommitMessage(commitMessage) {
-    const currentLines = commitMessage.split(/\r?\n/);
-    const editedLines = [];
-    console.log(chalk.cyan("Edit the current commit message line by line. Press Enter to accept each line."));
-    for (let index = 0; index < currentLines.length; index += 1) {
-        const prompt = currentLines.length === 1
-            ? "Edit commit message: "
-            : `Line ${index + 1}/${currentLines.length}: `;
-        const line = await askEditableLine(prompt, currentLines[index] ?? "");
-        if (line === null) {
-            return commitMessage;
-        }
-        if (line.length > 0 || currentLines[index]?.length === 0) {
-            editedLines.push(line);
-        }
-    }
-    while (true) {
-        const line = await askEditableLine("Add line (empty to finish): ", "");
-        if (line === null) {
-            return commitMessage;
-        }
-        if (line.length === 0) {
-            break;
-        }
-        editedLines.push(line);
-    }
-    const editedCommitMessage = editedLines.join("\n").trim();
-    if (editedCommitMessage.length === 0) {
-        console.log(chalk.yellow("Commit message cannot be empty. Keeping previous message."));
+    const editor = await findCommitMessageEditor();
+    if (!editor) {
+        console.log(chalk.yellow("No terminal editor found. Keeping previous message."));
         return commitMessage;
     }
-    return editedCommitMessage;
+    const messagePath = join(tmpdir(), `ai-commit-helper-edit-${randomUUID()}.txt`);
+    try {
+        await writeFile(messagePath, `${commitMessage.trim()}\n`, "utf8");
+        console.log(chalk.cyan(`Opening commit message in ${editor}...`));
+        await new Promise((resolve, reject) => {
+            const child = spawn("sh", ["-c", `${editor} ${shellQuote(messagePath)}`], {
+                cwd: process.cwd(),
+                stdio: "inherit",
+            });
+            child.on("error", reject);
+            child.on("close", (code) => {
+                if (code !== 0) {
+                    reject(new Error(`${editor} exited with code ${code}.`));
+                    return;
+                }
+                resolve();
+            });
+        });
+        const editedCommitMessage = (await readFile(messagePath, "utf8")).trim();
+        if (editedCommitMessage.length === 0) {
+            console.log(chalk.yellow("Commit message cannot be empty. Keeping previous message."));
+            return commitMessage;
+        }
+        return editedCommitMessage;
+    }
+    finally {
+        await unlink(messagePath).catch(() => undefined);
+    }
 }
 async function commitWithMessage(commitMessage) {
     const stagedDiff = await readStagedDiff();
