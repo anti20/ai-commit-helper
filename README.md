@@ -21,6 +21,8 @@ It runs from your terminal inside any Git repository and uses `git diff --staged
 - Support Codex and OpenAI providers
 - Prompt for provider selection when multiple providers are available
 - Use automatic goal inference or manual goal input
+- Automatically stage changes with `git add .` when using `--auto`
+- Disable automatic staging with `--no-auto-stage`
 - Treat an empty goal answer like automatic goal inference
 - Show loading feedback while AI generation is running
 - Commit directly from the generated commit message
@@ -76,7 +78,6 @@ Requirements:
 From any Git repository:
 
 ```bash
-git add .
 ai-commit-helper --auto
 ```
 
@@ -93,8 +94,9 @@ Then it asks what to do:
 - `Edit commit message`
 - `Do nothing`
 
-When editing a commit message, the current message is pre-filled in the terminal
-prompt so you can modify it before choosing the final action.
+When editing a commit message, the current message is pre-filled line by line in
+the terminal prompt so you can modify the existing text before choosing the final
+action.
 
 ## Usage
 
@@ -108,6 +110,12 @@ Skip the goal prompt and infer intent from the staged diff:
 
 ```bash
 ai-commit-helper --auto
+```
+
+Keep the current staged changes unchanged when using automatic goal inference:
+
+```bash
+ai-commit-helper --auto --no-auto-stage
 ```
 
 Generate a PR description:
@@ -140,17 +148,14 @@ ai-commit-helper uninstall
 
 ## PR Workflow
 
-Stage the changes:
-
-```bash
-git add .
-```
-
 Generate PR markdown:
 
 ```bash
 ai-commit-helper --pr --auto
 ```
+
+With `--auto`, the CLI stages changes with `git add .` before generating the PR
+markdown.
 
 PR mode generates only:
 
@@ -189,7 +194,7 @@ Provider behavior:
 - If `--provider` is passed, that provider is used.
 - If exactly one provider is available, it is selected automatically.
 - If multiple providers are available, the CLI asks which one to use.
-- `--auto` skips only the change-goal question. It does not skip provider selection.
+- `--auto` runs `git add .` and skips the change-goal question. It does not skip provider selection.
 
 ## Options
 
@@ -199,7 +204,12 @@ ai-commit-helper [options]
 
 ### `--auto`
 
-Skips the change-goal prompt. The AI infers the goal from the staged diff.
+Runs `git add .`, skips the change-goal prompt, and lets the AI infer the goal
+from the staged diff.
+
+### `--no-auto-stage`
+
+Disables the automatic `git add .` behavior when used with `--auto`.
 
 ### `--pr`
 

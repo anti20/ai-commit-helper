@@ -6,6 +6,7 @@ import { constants } from "node:fs";
 import { access, lstat, readdir, readFile, rm, unlink, writeFile, } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { Command } from "commander";
@@ -42,6 +43,9 @@ async function isInsideGitRepository() {
 }
 async function readStagedDiff() {
     return runGit(["diff", "--staged"]);
+}
+async function stageAllChanges() {
+    await runGit(["add", "."]);
 }
 async function findCommandInPath(command) {
     try {
@@ -564,17 +568,54 @@ async function askForSummaryAction() {
     });
     return response.action ?? null;
 }
-async function askForEditedCommitMessage(commitMessage) {
-    const response = await prompts({
-        type: "text",
-        name: "commitMessage",
-        message: "Edit commit message:",
-        initial: commitMessage,
+async function askEditableLine(message, initialValue) {
+    const readline = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+        terminal: true,
     });
-    if (typeof response.commitMessage !== "string") {
-        return commitMessage;
+    return new Promise((resolve) => {
+        let resolved = false;
+        const finish = (answer) => {
+            if (resolved) {
+                return;
+            }
+            resolved = true;
+            readline.close();
+            resolve(answer);
+        };
+        readline.on("SIGINT", () => finish(null));
+        readline.question(message, (answer) => finish(answer));
+        readline.write(initialValue);
+    });
+}
+async function askForEditedCommitMessage(commitMessage) {
+    const currentLines = commitMessage.split(/\r?\n/);
+    const editedLines = [];
+    console.log(chalk.cyan("Edit the current commit message line by line. Press Enter to accept each line."));
+    for (let index = 0; index < currentLines.length; index += 1) {
+        const prompt = currentLines.length === 1
+            ? "Edit commit message: "
+            : `Line ${index + 1}/${currentLines.length}: `;
+        const line = await askEditableLine(prompt, currentLines[index] ?? "");
+        if (line === null) {
+            return commitMessage;
+        }
+        if (line.length > 0 || currentLines[index]?.length === 0) {
+            editedLines.push(line);
+        }
     }
-    const editedCommitMessage = response.commitMessage.trim();
+    while (true) {
+        const line = await askEditableLine("Add line (empty to finish): ", "");
+        if (line === null) {
+            return commitMessage;
+        }
+        if (line.length === 0) {
+            break;
+        }
+        editedLines.push(line);
+    }
+    const editedCommitMessage = editedLines.join("\n").trim();
     if (editedCommitMessage.length === 0) {
         console.log(chalk.yellow("Commit message cannot be empty. Keeping previous message."));
         return commitMessage;
@@ -750,9 +791,13 @@ async function run(options) {
         return;
     }
     try {
+        if (options.auto && options.autoStage !== false) {
+            await stageAllChanges();
+            console.log(chalk.green("Staged changes with git add ."));
+        }
         const stagedDiff = await readStagedDiff();
         if (stagedDiff.trim().length === 0) {
-            console.log(chalk.yellow("No staged changes found. Run git add . first."));
+            console.log(chalk.yellow("No staged changes found."));
             return;
         }
         const availableProviders = await detectAvailableProviders();
@@ -835,7 +880,8 @@ program
     await runUninstall();
 });
 program
-    .option("--auto", "infer the goal from the staged diff without prompting")
+    .option("--auto", "stage all changes and infer the goal without prompting")
+    .option("--no-auto-stage", "do not run git add . automatically with --auto")
     .option("--pr", "generate a markdown pull request description")
     .option("--show-diff", "print a preview of the staged diff")
     .option("--provider <provider>", "AI provider to use: codex or openai. Defaults to automatic detection.", "auto")
