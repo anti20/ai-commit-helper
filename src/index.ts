@@ -663,9 +663,13 @@ function buildCodexExecArgs(
   outputPath: string,
   options: { ignoreUserConfig?: boolean } = {},
 ): string[] {
+  const model = process.env.AI_COMMIT_HELPER_CODEX_MODEL ?? "gpt-5.5";
+
   return [
     "exec",
-    ...(options.ignoreUserConfig ? ["--ignore-user-config"] : []),
+    "--ignore-user-config",
+    "-m",
+    model,
     "--sandbox",
     "read-only",
     "--ephemeral",

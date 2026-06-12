@@ -470,9 +470,12 @@ async function generateWithCodex(codexPath, mode, stagedDiff, userGoal, recentCo
     }
 }
 function buildCodexExecArgs(prompt, outputPath, options = {}) {
+    const model = process.env.AI_COMMIT_HELPER_CODEX_MODEL ?? "gpt-5.5";
     return [
         "exec",
-        ...(options.ignoreUserConfig ? ["--ignore-user-config"] : []),
+        "--ignore-user-config",
+        "-m",
+        model,
         "--sandbox",
         "read-only",
         "--ephemeral",
