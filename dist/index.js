@@ -439,6 +439,51 @@ function getErrorMessage(error) {
     }
     return String(error);
 }
+function readNumericUsageField(usage, key) {
+    const value = usage[key];
+    return typeof value === "number" ? value : undefined;
+}
+function extractUsageStats(response) {
+    if (typeof response !== "object" ||
+        response === null ||
+        !("usage" in response) ||
+        typeof response.usage !== "object" ||
+        response.usage === null) {
+        return undefined;
+    }
+    const usage = response.usage;
+    const inputTokens = readNumericUsageField(usage, "input_tokens") ??
+        readNumericUsageField(usage, "prompt_tokens");
+    const outputTokens = readNumericUsageField(usage, "output_tokens") ??
+        readNumericUsageField(usage, "completion_tokens");
+    const totalTokens = readNumericUsageField(usage, "total_tokens");
+    if (inputTokens === undefined &&
+        outputTokens === undefined &&
+        totalTokens === undefined) {
+        return undefined;
+    }
+    return {
+        inputTokens,
+        outputTokens,
+        totalTokens,
+    };
+}
+function formatUsageStats(usage) {
+    const parts = [];
+    if (usage.inputTokens !== undefined) {
+        parts.push(`input ${usage.inputTokens}`);
+    }
+    if (usage.outputTokens !== undefined) {
+        parts.push(`output ${usage.outputTokens}`);
+    }
+    if (usage.totalTokens !== undefined) {
+        parts.push(`total ${usage.totalTokens}`);
+    }
+    if (parts.length === 0) {
+        return null;
+    }
+    return `Token usage: ${parts.join(", ")}`;
+}
 async function generateWithCodex(codexPath, mode, stagedDiff, userGoal, recentCommitMessages = [], includeChangelog = false) {
     const prompt = buildGenerationPrompt(mode, stagedDiff, userGoal, recentCommitMessages, includeChangelog);
     const outputPath = join(tmpdir(), `ai-commit-helper-codex-${randomUUID()}.txt`);
@@ -463,7 +508,9 @@ async function generateWithCodex(codexPath, mode, stagedDiff, userGoal, recentCo
             const details = stderr.trim() || "Codex returned empty output.";
             throw new Error(details);
         }
-        return output;
+        return {
+            text: output,
+        };
     }
     finally {
         await unlink(outputPath).catch(() => undefined);
@@ -556,7 +603,10 @@ async function generateWithOpenAi(apiKey, mode, stagedDiff, userGoal, recentComm
         if (output.length === 0) {
             throw new Error("OpenAI returned empty output.");
         }
-        return output;
+        return {
+            text: output,
+            usage: extractUsageStats(responseBody),
+        };
     }
     finally {
         clearTimeout(timeout);
@@ -615,6 +665,17 @@ function printGeneratedSummary(summary) {
     console.log(chalk.bold("Generated output"));
     console.log("=".repeat("Generated output".length));
     console.log(summary.trim());
+}
+function printUsageStats(usage) {
+    if (!usage) {
+        return;
+    }
+    const formattedUsage = formatUsageStats(usage);
+    if (!formattedUsage) {
+        return;
+    }
+    console.log();
+    console.log(chalk.dim(formattedUsage));
 }
 async function copyToClipboard(text) {
     await new Promise((resolve, reject) => {
@@ -1022,9 +1083,10 @@ async function run(options) {
             const generateOutput = async (message) => {
                 const spinner = ora(message).start();
                 try {
-                    const generatedSummary = await generateSummary(aiProvider, mode, stagedDiff, userGoal, recentCommitMessages, includeChangelog);
+                    const generatedResult = await generateSummary(aiProvider, mode, stagedDiff, userGoal, recentCommitMessages, includeChangelog);
                     spinner.stop();
-                    return generatedSummary;
+                    printUsageStats(generatedResult.usage);
+                    return generatedResult.text;
                 }
                 catch (error) {
                     spinner.stop();

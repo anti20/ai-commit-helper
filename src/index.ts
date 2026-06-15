@@ -58,6 +58,15 @@ type UserConfig = {
 
 type OutputMode = "summary" | "pr";
 type PrAction = "copy" | "none";
+type UsageStats = {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+};
+type GeneratedResult = {
+  text: string;
+  usage?: UsageStats;
+};
 type SummaryAction =
   | "commit"
   | "commit-push"
@@ -604,6 +613,71 @@ function getErrorMessage(error: unknown): string {
   return String(error);
 }
 
+function readNumericUsageField(
+  usage: Record<string, unknown>,
+  key: string,
+): number | undefined {
+  const value = usage[key];
+  return typeof value === "number" ? value : undefined;
+}
+
+function extractUsageStats(response: unknown): UsageStats | undefined {
+  if (
+    typeof response !== "object" ||
+    response === null ||
+    !("usage" in response) ||
+    typeof response.usage !== "object" ||
+    response.usage === null
+  ) {
+    return undefined;
+  }
+
+  const usage = response.usage as Record<string, unknown>;
+  const inputTokens =
+    readNumericUsageField(usage, "input_tokens") ??
+    readNumericUsageField(usage, "prompt_tokens");
+  const outputTokens =
+    readNumericUsageField(usage, "output_tokens") ??
+    readNumericUsageField(usage, "completion_tokens");
+  const totalTokens = readNumericUsageField(usage, "total_tokens");
+
+  if (
+    inputTokens === undefined &&
+    outputTokens === undefined &&
+    totalTokens === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+  };
+}
+
+function formatUsageStats(usage: UsageStats): string | null {
+  const parts: string[] = [];
+
+  if (usage.inputTokens !== undefined) {
+    parts.push(`input ${usage.inputTokens}`);
+  }
+
+  if (usage.outputTokens !== undefined) {
+    parts.push(`output ${usage.outputTokens}`);
+  }
+
+  if (usage.totalTokens !== undefined) {
+    parts.push(`total ${usage.totalTokens}`);
+  }
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  return `Token usage: ${parts.join(", ")}`;
+}
+
 async function generateWithCodex(
   codexPath: string,
   mode: OutputMode,
@@ -611,7 +685,7 @@ async function generateWithCodex(
   userGoal?: string,
   recentCommitMessages: string[] = [],
   includeChangelog = false,
-): Promise<string> {
+): Promise<GeneratedResult> {
   const prompt = buildGenerationPrompt(
     mode,
     stagedDiff,
@@ -652,7 +726,9 @@ async function generateWithCodex(
       throw new Error(details);
     }
 
-    return output;
+    return {
+      text: output,
+    };
   } finally {
     await unlink(outputPath).catch(() => undefined);
   }
@@ -736,7 +812,7 @@ async function generateWithOpenAi(
   userGoal?: string,
   recentCommitMessages: string[] = [],
   includeChangelog = false,
-): Promise<string> {
+): Promise<GeneratedResult> {
   const prompt = buildGenerationPrompt(
     mode,
     stagedDiff,
@@ -786,7 +862,10 @@ async function generateWithOpenAi(
       throw new Error("OpenAI returned empty output.");
     }
 
-    return output;
+    return {
+      text: output,
+      usage: extractUsageStats(responseBody),
+    };
   } finally {
     clearTimeout(timeout);
   }
@@ -851,7 +930,7 @@ async function generateSummary(
   userGoal?: string,
   recentCommitMessages: string[] = [],
   includeChangelog = false,
-): Promise<string> {
+): Promise<GeneratedResult> {
   if (provider.name === "codex") {
     return generateWithCodex(
       provider.codexPath,
@@ -882,6 +961,21 @@ function printGeneratedSummary(summary: string): void {
   console.log(chalk.bold("Generated output"));
   console.log("=".repeat("Generated output".length));
   console.log(summary.trim());
+}
+
+function printUsageStats(usage?: UsageStats): void {
+  if (!usage) {
+    return;
+  }
+
+  const formattedUsage = formatUsageStats(usage);
+
+  if (!formattedUsage) {
+    return;
+  }
+
+  console.log();
+  console.log(chalk.dim(formattedUsage));
 }
 
 async function copyToClipboard(text: string): Promise<void> {
@@ -1419,7 +1513,7 @@ async function run(options: CliOptions): Promise<void> {
         const spinner = ora(message).start();
 
         try {
-          const generatedSummary = await generateSummary(
+          const generatedResult = await generateSummary(
             aiProvider,
             mode,
             stagedDiff,
@@ -1428,7 +1522,8 @@ async function run(options: CliOptions): Promise<void> {
             includeChangelog,
           );
           spinner.stop();
-          return generatedSummary;
+          printUsageStats(generatedResult.usage);
+          return generatedResult.text;
         } catch (error) {
           spinner.stop();
           throw error;
