@@ -352,11 +352,27 @@ npm run dev -- --auto
 npm run dev -- --pr --auto
 ```
 
-Build:
+Type-check:
+
+```bash
+npm run typecheck
+```
+
+Build the CLI:
 
 ```bash
 npm run build
 ```
+
+Run the built CLI:
+
+```bash
+npm run start -- --help
+```
+
+The source code lives in `src`. Production builds bundle the structured
+TypeScript source into a single executable `dist/index.js` file. The `dist`
+directory is generated output and should not be edited by hand.
 
 ## Notes
 
