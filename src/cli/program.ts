@@ -29,7 +29,7 @@ export function createProgram(): Command {
     });
 
   program
-    .option("--auto", "stage all changes and infer the goal without prompting")
+    .option("-a, --auto", "stage all changes and infer the goal without prompting")
     .option("--no-auto-stage", "do not run git add . automatically with --auto")
     .option(
       "--style-commits <n>",

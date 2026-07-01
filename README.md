@@ -82,7 +82,7 @@ Requirements:
 From any Git repository:
 
 ```bash
-ai-commit-helper --auto
+ai-commit-helper -a
 ```
 
 The CLI generates commit-focused output:
@@ -114,7 +114,7 @@ ai-commit-helper
 Skip the goal prompt and infer intent from the staged diff:
 
 ```bash
-ai-commit-helper --auto
+ai-commit-helper -a
 ```
 
 Keep the current staged changes unchanged when using automatic goal inference:
@@ -224,7 +224,7 @@ Provider behavior:
 - If `--provider` is passed, that provider is used.
 - If exactly one provider is available, it is selected automatically.
 - If multiple providers are available, the CLI asks which one to use.
-- `--auto` runs `git add .` and skips the change-goal question. It does not skip provider selection.
+- `-a, --auto` runs `git add .` and skips the change-goal question. It does not skip provider selection.
 
 ## Options
 
@@ -232,7 +232,7 @@ Provider behavior:
 ai-commit-helper [options]
 ```
 
-### `--auto`
+### `-a, --auto`
 
 Runs `git add .`, prints the files that were staged automatically, skips the
 change-goal prompt, and lets the AI infer the goal from the staged diff.

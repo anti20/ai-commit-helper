@@ -1225,7 +1225,7 @@ function createProgram() {
   program.command("config").description("manage ai-commit-helper configuration").command("set <key> <value>").description("set a configuration value").action(async (key, value) => {
     await runConfigSet(key, value);
   });
-  program.option("--auto", "stage all changes and infer the goal without prompting").option("--no-auto-stage", "do not run git add . automatically with --auto").option(
+  program.option("-a, --auto", "stage all changes and infer the goal without prompting").option("--no-auto-stage", "do not run git add . automatically with --auto").option(
     "--style-commits <n>",
     "number of recent commit messages to use as a style guide"
   ).option(
