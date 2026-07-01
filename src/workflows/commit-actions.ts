@@ -8,7 +8,7 @@ import chalk from "chalk";
 import prompts from "prompts";
 
 import { copyToClipboard } from "../system/clipboard.js";
-import { readStagedDiff, runGit } from "../git/client.js";
+import { readCurrentBranchLabel, readStagedDiff, runGit } from "../git/client.js";
 import { printGeneratedSummary } from "../ui/output.js";
 import { findCommandInPath } from "../system/command-path.js";
 import type { PrAction, SummaryAction } from "../core/types.js";
@@ -195,8 +195,13 @@ export async function handleSummaryActions(
   regenerateSummary?: () => Promise<string>,
 ): Promise<void> {
   let commitMessage = extractCommitMessage(generatedOutput);
+  const branchLabel = await readCurrentBranchLabel();
 
   while (true) {
+    console.log(
+      chalk.magentaBright(`Currently selected branch: ${branchLabel}`),
+    );
+
     const action = await askForSummaryAction();
 
     if (!action || action === "none") {
@@ -229,11 +234,12 @@ export async function handleSummaryActions(
     }
 
     await commitWithMessage(commitMessage);
-    console.log(chalk.green("Created commit."));
+    console.log(chalk.green(`Created commit on ${branchLabel}.`));
 
     if (action === "commit-push") {
+      console.log(chalk.cyan(`Pushing ${branchLabel}...`));
       await runGit(["push"]);
-      console.log(chalk.green("Pushed commit."));
+      console.log(chalk.green(`Pushed ${branchLabel}.`));
     }
 
     return;

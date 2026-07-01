@@ -22,6 +22,17 @@ export async function readStagedDiff(): Promise<string> {
   return runGit(["diff", "--staged"]);
 }
 
+export async function readCurrentBranchLabel(): Promise<string> {
+  const branchName = (await runGit(["branch", "--show-current"])).trim();
+
+  if (branchName.length > 0) {
+    return branchName;
+  }
+
+  const shortHead = (await runGit(["rev-parse", "--short", "HEAD"])).trim();
+  return `detached HEAD ${shortHead}`;
+}
+
 export async function stageAllChanges(): Promise<void> {
   await runGit(["add", "."]);
 }

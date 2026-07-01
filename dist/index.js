@@ -513,6 +513,14 @@ async function isInsideGitRepository() {
 async function readStagedDiff() {
   return runGit(["diff", "--staged"]);
 }
+async function readCurrentBranchLabel() {
+  const branchName = (await runGit(["branch", "--show-current"])).trim();
+  if (branchName.length > 0) {
+    return branchName;
+  }
+  const shortHead = (await runGit(["rev-parse", "--short", "HEAD"])).trim();
+  return `detached HEAD ${shortHead}`;
+}
 async function stageAllChanges() {
   await runGit(["add", "."]);
 }
@@ -766,7 +774,11 @@ async function commitWithMessage(commitMessage) {
 }
 async function handleSummaryActions(generatedOutput, regenerateSummary) {
   let commitMessage = extractCommitMessage(generatedOutput);
+  const branchLabel = await readCurrentBranchLabel();
   while (true) {
+    console.log(
+      chalk2.magentaBright(`Currently selected branch: ${branchLabel}`)
+    );
     const action = await askForSummaryAction();
     if (!action || action === "none") {
       return;
@@ -793,10 +805,11 @@ async function handleSummaryActions(generatedOutput, regenerateSummary) {
       return;
     }
     await commitWithMessage(commitMessage);
-    console.log(chalk2.green("Created commit."));
+    console.log(chalk2.green(`Created commit on ${branchLabel}.`));
     if (action === "commit-push") {
+      console.log(chalk2.cyan(`Pushing ${branchLabel}...`));
       await runGit(["push"]);
-      console.log(chalk2.green("Pushed commit."));
+      console.log(chalk2.green(`Pushed ${branchLabel}.`));
     }
     return;
   }
