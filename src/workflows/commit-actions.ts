@@ -42,7 +42,7 @@ export async function handlePrActions(prDescription: string): Promise<void> {
   }
 }
 
-function extractCommitMessage(generatedOutput: string): string {
+export function extractCommitMessage(generatedOutput: string): string {
   const commitHeader = "Commit message:";
   const changelogHeader = "Changelog:";
   const commitStart = generatedOutput.indexOf(commitHeader);
