@@ -41,6 +41,10 @@ export function createProgram(): Command {
     )
     .option("--changelog", "include a changelog section in commit output")
     .option("--pr", "generate a markdown pull request description")
+    .option(
+      "--create-pr",
+      "commit staged changes, push the current branch, and create a draft GitHub pull request",
+    )
     .option("--show-diff", "print a preview of the staged diff")
     .option(
       "--provider <provider>",

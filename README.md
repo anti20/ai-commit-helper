@@ -154,6 +154,12 @@ Generate a PR description:
 ai-commit-helper --pr --auto
 ```
 
+Commit, push, and open a draft GitHub PR from the staged changes:
+
+```bash
+ai-commit-helper --create-pr --auto
+```
+
 Show a preview of the staged diff:
 
 ```bash
@@ -190,6 +196,7 @@ markdown.
 PR mode generates only:
 
 ```markdown
+PR title:
 ## Summary
 ## Changes
 ## Why
@@ -201,6 +208,9 @@ Then it asks what to do:
 
 - `Copy PR description`
 - `Do nothing`
+
+Use `--create-pr` instead to commit the staged changes, push the current branch,
+and create a draft PR without the action prompt.
 
 The Testing section contains suggested verification steps based on the diff. The tool does not run tests.
 
@@ -286,6 +296,12 @@ Precedence:
 ### `--pr`
 
 Generates a PR markdown description instead of commit-focused output.
+
+### `--create-pr`
+
+Generates a PR title and description, commits the staged changes using that title,
+pushes the current branch to `origin`, and opens a draft pull request through the
+GitHub CLI. It requires `gh` to be installed and authenticated.
 
 ### `--show-diff`
 

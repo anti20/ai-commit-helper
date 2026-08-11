@@ -34,6 +34,7 @@ index 1111111..2222222 100644
     const prompt = buildGenerationPrompt("pr", diff);
 
     expect(prompt).toContain("## Summary");
+    expect(prompt).toContain("PR title:");
     expect(prompt).toContain("## Changes");
     expect(prompt).toContain("## Testing");
     expect(prompt).toContain("User goal:\nNot provided.");

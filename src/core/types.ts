@@ -14,6 +14,7 @@ export type CliOptions = {
   auto?: boolean;
   autoStage?: boolean;
   changelog?: boolean;
+  createPr?: boolean;
   pr?: boolean;
   showDiff?: boolean;
   provider?: string;

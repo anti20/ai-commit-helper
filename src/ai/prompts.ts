@@ -108,6 +108,9 @@ Do not include separate Commit message or Changelog sections.
 
 Use the staged git diff and optional user goal below to generate exactly this markdown structure:
 
+PR title:
+<short, descriptive pull request title>
+
 ## Summary
 <high level explanation>
 

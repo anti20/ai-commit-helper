@@ -21,6 +21,7 @@ import {
   stageAllChanges,
 } from "../git/client.js";
 import {
+  commitPushAndCreateDraftPullRequest,
   handlePrActions,
   handleSummaryActions,
 } from "../workflows/commit-actions.js";
@@ -157,7 +158,7 @@ export async function run(options: CliOptions): Promise<void> {
     }
 
     try {
-      const mode: OutputMode = options.pr ? "pr" : "summary";
+      const mode: OutputMode = options.pr || options.createPr ? "pr" : "summary";
       const userGoal = options.auto ? undefined : await askForUserGoal();
       const includeChangelog = mode === "summary" && options.changelog === true;
       const recentCommitMessages =
@@ -189,7 +190,12 @@ export async function run(options: CliOptions): Promise<void> {
       printGeneratedSummary(generatedSummary);
 
       try {
-        if (mode === "pr") {
+        if (options.createPr) {
+          const pullRequestUrl = await commitPushAndCreateDraftPullRequest(
+            generatedSummary,
+          );
+          console.log(chalk.green(`Created draft pull request: ${pullRequestUrl}`));
+        } else if (mode === "pr") {
           await handlePrActions(generatedSummary);
         } else {
           await handleSummaryActions(generatedSummary, () =>

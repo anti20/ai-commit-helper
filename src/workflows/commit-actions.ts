@@ -8,6 +8,7 @@ import chalk from "chalk";
 import prompts from "prompts";
 
 import { copyToClipboard } from "../system/clipboard.js";
+import { createDraftPullRequest } from "../github/pull-request.js";
 import { readCurrentBranchLabel, readStagedDiff, runGit } from "../git/client.js";
 import { printGeneratedSummary } from "../ui/output.js";
 import { findCommandInPath } from "../system/command-path.js";
@@ -62,6 +63,27 @@ export function extractCommitMessage(generatedOutput: string): string {
   }
 
   return commitMessage;
+}
+
+export function extractPullRequestTitle(generatedOutput: string): string {
+  const titleMatch = generatedOutput.match(/^PR title:\s*([^\n]+)$/m);
+  const title = titleMatch?.[1]?.trim() ?? "";
+
+  if (title.length === 0) {
+    throw new Error("Generated output did not include a PR title.");
+  }
+
+  return title;
+}
+
+export function extractPullRequestDescription(generatedOutput: string): string {
+  const descriptionStart = generatedOutput.indexOf("## Summary");
+
+  if (descriptionStart === -1) {
+    throw new Error("Generated output did not include a PR description.");
+  }
+
+  return generatedOutput.slice(descriptionStart).trim();
 }
 
 async function askForSummaryAction(): Promise<SummaryAction | null> {
@@ -188,6 +210,22 @@ async function commitWithMessage(commitMessage: string): Promise<void> {
   } finally {
     await unlink(messagePath).catch(() => undefined);
   }
+}
+
+export async function commitPushAndCreateDraftPullRequest(
+  generatedOutput: string,
+): Promise<string> {
+  const title = extractPullRequestTitle(generatedOutput);
+  const description = extractPullRequestDescription(generatedOutput);
+  const branchLabel = await readCurrentBranchLabel();
+
+  await commitWithMessage(title);
+  console.log(chalk.green(`Created commit on ${branchLabel}.`));
+  console.log(chalk.cyan(`Pushing ${branchLabel}...`));
+  await runGit(["push", "-u", "origin", branchLabel]);
+  console.log(chalk.green(`Pushed ${branchLabel}.`));
+
+  return createDraftPullRequest(title, description);
 }
 
 export async function handleSummaryActions(
