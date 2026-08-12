@@ -217,6 +217,9 @@ Do not include separate Commit message or Changelog sections.
 
 Use the staged git diff and optional user goal below to generate exactly this markdown structure:
 
+PR title:
+<short, descriptive pull request title>
+
 ## Summary
 <high level explanation>
 
@@ -581,6 +584,34 @@ async function copyToClipboard(text) {
   });
 }
 
+// src/github/pull-request.ts
+function buildCreateDraftPullRequestArgs(title, description) {
+  return ["pr", "create", "--draft", "--title", title, "--body", description];
+}
+async function createDraftPullRequest(title, description) {
+  let stdout;
+  try {
+    ({ stdout } = await execFileAsync(
+      "gh",
+      buildCreateDraftPullRequestArgs(title, description),
+      {
+        cwd: process.cwd(),
+        maxBuffer: 10 * 1024 * 1024
+      }
+    ));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Could not create a draft GitHub pull request. Ensure gh is installed and authenticated. ${message}`
+    );
+  }
+  const url = stdout.trim();
+  if (!url.startsWith("https://github.com/")) {
+    throw new Error("GitHub CLI did not return a pull request URL.");
+  }
+  return url;
+}
+
 // src/ui/output.ts
 import chalk from "chalk";
 function printAutoStagePreview(files) {
@@ -668,6 +699,21 @@ function extractCommitMessage(generatedOutput) {
     throw new Error("Generated commit message was empty.");
   }
   return commitMessage;
+}
+function extractPullRequestTitle(generatedOutput) {
+  const titleMatch = generatedOutput.match(/^PR title:\s*([^\n]+)$/m);
+  const title = titleMatch?.[1]?.trim() ?? "";
+  if (title.length === 0) {
+    throw new Error("Generated output did not include a PR title.");
+  }
+  return title;
+}
+function extractPullRequestDescription(generatedOutput) {
+  const descriptionStart = generatedOutput.indexOf("## Summary");
+  if (descriptionStart === -1) {
+    throw new Error("Generated output did not include a PR description.");
+  }
+  return generatedOutput.slice(descriptionStart).trim();
 }
 async function askForSummaryAction() {
   const response = await prompts({
@@ -771,6 +817,17 @@ async function commitWithMessage(commitMessage) {
   } finally {
     await unlink2(messagePath).catch(() => void 0);
   }
+}
+async function commitPushAndCreateDraftPullRequest(generatedOutput) {
+  const title = extractPullRequestTitle(generatedOutput);
+  const description = extractPullRequestDescription(generatedOutput);
+  const branchLabel = await readCurrentBranchLabel();
+  await commitWithMessage(title);
+  console.log(chalk2.green(`Created commit on ${branchLabel}.`));
+  console.log(chalk2.cyan(`Pushing ${branchLabel}...`));
+  await runGit(["push", "-u", "origin", branchLabel]);
+  console.log(chalk2.green(`Pushed ${branchLabel}.`));
+  return createDraftPullRequest(title, description);
 }
 async function handleSummaryActions(generatedOutput, regenerateSummary) {
   let commitMessage = extractCommitMessage(generatedOutput);
@@ -1029,7 +1086,7 @@ async function run(options) {
       console.log(previewDiff(stagedDiff));
     }
     try {
-      const mode = options.pr ? "pr" : "summary";
+      const mode = options.pr || options.createPr ? "pr" : "summary";
       const userGoal = options.auto ? void 0 : await askForUserGoal();
       const includeChangelog = mode === "summary" && options.changelog === true;
       const recentCommitMessages = mode === "summary" ? await readRecentCommitMessages(styleCommitCount) : [];
@@ -1057,7 +1114,12 @@ async function run(options) {
       );
       printGeneratedSummary(generatedSummary);
       try {
-        if (mode === "pr") {
+        if (options.createPr) {
+          const pullRequestUrl = await commitPushAndCreateDraftPullRequest(
+            generatedSummary
+          );
+          console.log(chalk3.green(`Created draft pull request: ${pullRequestUrl}`));
+        } else if (mode === "pr") {
           await handlePrActions(generatedSummary);
         } else {
           await handleSummaryActions(
@@ -1231,7 +1293,10 @@ function createProgram() {
   ).option(
     "--no-style-match",
     "do not match generated commit messages to recent commits"
-  ).option("--changelog", "include a changelog section in commit output").option("--pr", "generate a markdown pull request description").option("--show-diff", "print a preview of the staged diff").option(
+  ).option("--changelog", "include a changelog section in commit output").option("--pr", "generate a markdown pull request description").option(
+    "--create-pr",
+    "commit staged changes, push the current branch, and create a draft GitHub pull request"
+  ).option("--show-diff", "print a preview of the staged diff").option(
     "--provider <provider>",
     "AI provider to use: codex or openai. Defaults to automatic detection.",
     "auto"
